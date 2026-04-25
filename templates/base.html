@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Vulnix</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/icon.png') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+</head>
+
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+
+    <div class="left">
+       
+        <div class="logo">
+            <img src="{{ url_for('static', filename='images/logo.png') }}">
+        </div>
+
+        <div class="search-box">
+            <input type="text" placeholder="Search...">
+            <i class="fas fa-search"></i>
+        </div>
+    </div>
+
+    <div class="right">
+
+        <img src="{{ url_for('static', filename='images/setting.png') }}" class="nav-icon">
+
+        <div class="profile-container">
+
+            <img src="{{ url_for('static', filename='images/user.png') }}"
+                 class="profile-img"
+                 onclick="toggleProfile()">
+
+            <div class="profile-dropdown" id="profileBox">
+
+                <div class="profile-header">
+                    <img src="{{ url_for('static', filename='images/user.png') }}" class="profile-avatar">
+
+                    <div>
+                        <p class="profile-name">{{ user.name }}</p>
+                        <p class="profile-email">{{ user.email }}</p>
+                    </div>
+                </div>
+
+                <div class="profile-divider"></div>
+
+                <a href="/logout" class="logout-btn">
+                    <img src="{{ url_for('static', filename='images/logout.png') }}">
+                    Logout
+                </a>
+
+            </div>
+
+        </div>
+         <a href="/logout">
+        <img src="{{ url_for('static', filename='images/logout.png') }}" class="nav-icon">
+    </a>
+    </div>
+
+</div>
+
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+
+    <a href="/dashboard" class="side-item {% if active=='dashboard' %}active{% endif %}">
+        <i class="fas fa-chart-line"></i>
+        <span>Dashboard</span>
+    </a>
+
+    <a href="/scan" class="side-item {% if active=='scan' %}active{% endif %}">
+        <i class="fas fa-search"></i>
+        <span>Scan</span>
+    </a>
+
+    <a href="/asset" class="side-item {% if active=='asset' %}active{% endif %}">
+        <i class="fas fa-server"></i>
+        <span>Assets</span>
+    </a>
+
+    <a href="/result" class="side-item {% if active=='result' %}active{% endif %}">
+        <i class="fas fa-file-alt"></i>
+        <span>Results</span>
+    </a>
+
+</div>
+
+
+<!-- MAIN -->
+<div class="main-content">
+    {% block content %}{% endblock %}
+</div>
+
+<script src="{{ url_for('static', filename='js/base.js') }}"></script>
+
+</body>
+</html>

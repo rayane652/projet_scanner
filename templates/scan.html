@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block content %}
+<form action="/run_scan" method="POST">
+    <input type="text" name="target" placeholder="Enter IP / URL" required>
+
+    <select name="type">
+        <option value="port">Port Scan</option>
+        <option value="web">Web Scan</option>
+        <option value="cve">CVE Search</option>
+    </select>
+
+    <button type="submit">Start Scan</button>
+</form>
+{% endblock %}

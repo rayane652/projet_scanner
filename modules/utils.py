@@ -12,8 +12,10 @@ def grab_banner(ip, port):
         sock = socket.socket()
         sock.settimeout(1)
         sock.connect((ip, port))
+
         banner = sock.recv(1024).decode(errors="ignore").strip()
         sock.close()
+
         return banner
     except:
         return ""

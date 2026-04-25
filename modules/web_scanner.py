@@ -9,12 +9,9 @@ def scan_website(url):
         data["status_code"] = response.status_code
         data["headers"] = dict(response.headers)
 
-        # basic tech hints
-        server = response.headers.get("Server", "")
-        powered = response.headers.get("X-Powered-By", "")
-
-        data["server"] = server
-        data["powered_by"] = powered
+        # simple tech hints
+        data["server"] = response.headers.get("Server", "")
+        data["powered_by"] = response.headers.get("X-Powered-By", "")
 
     except Exception as e:
         data["error"] = str(e)

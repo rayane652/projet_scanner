@@ -1,0 +1,399 @@
+<!DOCTYPE html> 
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Vulnix Scanner</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/icon.png') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body>
+
+<header class="navbar">
+    <div class="logo">
+        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Vulnix Logo">
+    </div>
+
+    <nav>
+       <a href="#home">Home</a>
+        <a href="#features">Features</a>
+        <a href="#contact">Contact us </a>
+       
+    </nav>
+
+    <button class="btn-primary" onclick="location.href='#home'">Get Started Now !</button>
+</header>
+
+<section class="hero" id="home">
+
+    <div class="hero-left">
+        <span class="badge">● Security since 2026</span>
+
+        <h1>
+            Advanced Vulnerability <br>
+            <span>Scanning Platform</span>
+        </h1>
+
+        <p>
+            Vulnix helps you detect, analyze, and fix security risks in real-time.
+            Stay ahead of threats with precision scanning and actionable insights.
+        </p>
+
+        <div class="buttons">
+            <button class="btn-primary" onclick="location.href='#home'" >Start Free Scan →</button>
+            <button class="btn-outline" onclick="location.href='#features'">View Features</button>
+        </div>
+    </div>
+
+    <div class="hero-right">
+        <div class="form-box">
+            {% if message %}
+    <div class="alert">{{ message }}</div>
+            {% endif %}               
+            <h2 id="form-title">Create Account</h2>
+            <p id="form-subtitle">Start scanning your system securely.</p>
+
+            <!-- SIGNUP -->
+            <form id="signup-form" method="POST" action="/signup">
+               <input type="text" name="name" placeholder="Full Name" required>
+               <input type="email" name="email" placeholder="Email Address" required>
+               <input type="password" name="password" placeholder="Password" required>
+
+              <button type="submit" class="btn-primary full">Sign Up</button>
+            </form>
+
+            <!-- LOGIN -->
+            <form id="login-form" style="display: none;" method="POST" action="/login">
+               <input type="email" name="email" placeholder="Email Address" required>
+               <input type="password" name="password" placeholder="Password" required>
+
+               <button type="submit" class="btn-primary full">Log In</button>
+            </form>
+
+            <p class="switch-text">
+                Already have an account?
+                <span id="toggle-form">Log in</span>
+            </p>
+
+        </div>
+    </div>
+
+</section>
+<!-- ================= LANDING (SCROLL DOWN) ================= -->
+
+<section id="features" class="landing">
+
+    <!-- TITLE -->
+    <div class="landing-title">
+        <h2>
+            Advanced Security <span>Solutions</span>
+        </h2>
+        <p>
+            Discover powerful scanning tools designed to protect your systems in real-time.
+        </p>
+    </div>
+
+    <!-- SCAN TYPES -->
+   <div class="scan-types">
+
+    <div class="scan-card">
+        <div class="icon">
+            <i class="fa-solid fa-network-wired"></i>
+        </div>
+
+        <h3>Network Scan</h3>
+
+        <p>
+            Detect open ports, services, and vulnerabilities across your network infrastructure.
+        </p>
+
+        <ul>
+            <li>✔ Open ports detection</li>
+            <li>✔ Service enumeration</li>
+            <li>✔ Internal network mapping</li>
+            <li>✔ Risk identification</li>
+        </ul>
+
+        <a href="#home">Start Scan →</a>
+    </div>
+
+
+    <div class="scan-card">
+        <div class="icon">
+            <i class="fa-solid fa-globe"></i>
+        </div>
+
+        <h3>Web Scan</h3>
+
+        <p>
+            Analyze websites and web apps for common vulnerabilities and misconfigurations.
+        </p>
+
+        <ul>
+            <li>✔ SQL injection detection</li>
+            <li>✔ XSS vulnerabilities</li>
+            <li>✔ Security headers check</li>
+            <li>✔ Authentication flaws</li>
+        </ul>
+
+        <a href="#home">Start Scan →</a>
+    </div>
+
+
+    <div class="scan-card">
+        <div class="icon">
+            <i class="fa-solid fa-bug"></i>
+        </div>
+
+        <h3>CVE Scan</h3>
+
+        <p>
+            Identify known vulnerabilities using updated CVE databases and threat intelligence.
+        </p>
+
+        <ul>
+            <li>✔ CVE database matching</li>
+            <li>✔ Severity scoring</li>
+            <li>✔ Exploit detection</li>
+            <li>✔ Real-time updates</li>
+        </ul>
+
+        <a href="#home">Start Scan →</a>
+    </div>
+
+
+    <div class="scan-card">
+        <div class="icon">
+            <i class="fa-solid fa-plug"></i>
+        </div>
+
+        <h3>Port Scan</h3>
+
+        <p>
+            Discover exposed ports and analyze potential entry points for attackers.
+        </p>
+
+        <ul>
+            <li>✔ TCP/UDP scanning</li>
+            <li>✔ Fast detection</li>
+            <li>✔ Service mapping</li>
+            <li>✔ Attack surface analysis</li>
+        </ul>
+
+        <a href="#home">Start Scan →</a>
+    </div>
+
+</div>
+
+</section>
+
+<!-- WHY US -->
+<section id="features" class="why">
+
+    <!-- LEFT -->
+    <div class="why-left">
+
+        <span class="why-badge">Why Choose Us</span>
+
+        <h2>
+            Powerful Security <span class="gradient-text">You Can Trust</span>
+        </h2>
+
+        <p class="why-desc">
+            Vulnix delivers fast, accurate, and real-time vulnerability scanning.
+            Built for developers and security teams who need reliable protection
+            without complexity.
+        </p>
+
+        <div class="why-features">
+
+            <div class="feature">
+                <div class="icon-box"><i class="fas fa-clock"></i></div>
+                <div>
+                    <h4>Real-Time Detection</h4>
+                    <p>Instantly detect threats and vulnerabilities.</p>
+                </div>
+            </div>
+
+            <div class="feature">
+                <div class="icon-box"><i class="fas fa-globe"></i></div>
+                <div>
+                    <h4>Global Coverage</h4>
+                    <p>Scan networks and systems anywhere.</p>
+                </div>
+            </div>
+
+            <div class="feature">
+                <div class="icon-box"><i class="fas fa-shield-alt"></i></div>
+                <div>
+                    <h4>Advanced Protection</h4>
+                    <p>Accurate reports and risk analysis.</p>
+                </div>
+            </div>
+
+            <div class="feature">
+                <div class="icon-box"><i class="fas fa-headset"></i></div>
+                <div>
+                    <h4>24/7 Monitoring</h4>
+                    <p>Continuous scanning and alerts.</p>
+                </div>
+            </div>
+
+        </div>
+
+        <button class="btn-start" onclick="location.href='#home'">Get Started Today →</button>
+
+    </div>
+
+    <!-- RIGHT -->
+    <div class="why-right">
+
+        <div class="why-card">
+
+            <div class="stat-top">
+                ✔ 98.5%
+                <span>Detection Rate</span>
+            </div>
+
+            <!-- 🔥 curve -->
+            <svg class="curve" viewBox="0 0 300 120">
+                <path d="M10 80 Q 80 20, 150 60 T 290 40"
+                      stroke="#facc15"
+                      stroke-width="3"
+                      fill="none"
+                      stroke-dasharray="6 6"/>
+
+                <circle cx="10" cy="80" r="5" fill="#facc15"/>
+                <circle cx="150" cy="60" r="5" fill="#60a5fa"/>
+                <circle cx="290" cy="40" r="5" fill="#facc15"/>
+            </svg>
+
+            <div class="stats-row">
+                <div>
+                    <h3>150+</h3>
+                    <p>Scans</p>
+                </div>
+                <div>
+                    <h3>500+</h3>
+                    <p>Threats</p>
+                </div>
+                <div>
+                    <h3>24/7</h3>
+                    <p>Monitoring</p>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+<!-- CTA -->
+<section id="features" class="cta">
+
+    <div class="cta-content">
+
+        <div class="cta-icon">
+            <i class="fas fa-shield-alt"></i>
+        </div>
+
+        <h2>
+            Ready to <span class="gradient-text">Secure Your System?</span>
+        </h2>
+
+        <p>
+            Launch your first vulnerability scan and uncover security risks in seconds.
+            Fast, precise, and built for real-world protection.
+        </p>
+
+        <div class="cta-buttons">
+            <button class="btn-cta-primary" onclick="location.href='#home'">Start Scan →</button>
+            <button class="btn-cta-outline">
+                <i class="fas fa-play"></i> Learn More
+            </button>
+        </div>
+
+        <div class="cta-features">
+            <span>✔ Real-time results</span>
+            <span>✔ No setup required</span>
+            <span>✔ Instant insights</span>
+        </div>
+
+    </div>
+
+</section>
+<section id="contact">
+<!-- FOOTER -->
+<footer class="footer">
+
+    <div class="footer-container">
+
+        <!-- LEFT -->
+        <div class="footer-col footer-brand">
+            <div class="footer-logo">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Vulnix Logo">
+    
+            </div>
+
+            <p>
+                Advanced vulnerability scanning platform. Detect, analyze,
+                and secure your systems with precision.
+            </p>
+
+            <div class="socials">
+                <i class="fab fa-x-twitter"></i>
+                <i class="fab fa-linkedin-in"></i>
+                <i class="fab fa-facebook-f"></i>
+                <i class="fab fa-youtube"></i>
+            </div>
+        </div>
+
+        <!-- SERVICES -->
+        <div class="footer-col">
+            <h4>Services</h4>
+            <a href="#">Network Scan</a>
+            <a href="#">Web Scan</a>
+            <a href="#">CVE Scan</a>
+            <a href="#">Port Scan</a>
+        </div>
+
+        <!-- QUICK LINKS -->
+        <div class="footer-col">
+            <h4>Quick Links</h4>
+            <a href="#home">Home</a>
+            <a href="#features">Features</a>
+            <a href="#contact">Contact</a>
+        </div>
+
+        <!-- CONTACT -->
+        <div class="footer-col">
+            <h4>Contact</h4>
+
+            <p><i class="fas fa-phone"></i> +213 XXX XXX XXX</p>
+            <p><i class="fas fa-envelope"></i> support@vulnix.com</p>
+            <p><i class="fas fa-location-dot"></i> Algeria</p>
+        </div>
+
+    </div>
+
+    <div class="footer-bottom">
+        <p>© 2026 Vulnix. All rights reserved.</p>
+        <div>
+            <a href="#">Privacy Policy</a>
+            <a href="#">Terms of Service</a>
+        </div>
+    </div>
+
+</footer>
+</section>
+
+<!-- JS LINK (VERY IMPORTANT POSITION) -->
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+    window.initialLoginState = {{ 'true' if show_login else 'false' }};
+</script>
+</body>
+</html>
