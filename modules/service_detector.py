@@ -1,7 +1,7 @@
 import re
 
 def detect_service_and_version(port, banner):
-    banner = banner.lower()
+    banner = (banner or "").lower()
 
     # FTP
     if port == 21 or "ftp" in banner:
@@ -11,17 +11,16 @@ def detect_service_and_version(port, banner):
 
     # SSH
     if port == 22 or "ssh" in banner:
-        m = re.search(r"openssh[_\s]?([\d\.p]+)", banner)
+        m = re.search(r"openssh[_\s]?([\d\.]+)", banner)
         if m:
-            version = m.group(1).replace("p", "")
-            return "ssh", version, "openssh"
+            return "ssh", m.group(1), "openssh"
 
-    # SMTP (Postfix)
+    # SMTP
     if port == 25 or "postfix" in banner:
         return "smtp", "", "postfix"
 
     # HTTP
     if port == 80:
-        return "http", "", "apache"
+        return "http", "", "http"
 
     return "unknown", "", ""
