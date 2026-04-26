@@ -6,7 +6,7 @@
 }
 
 body {
-    display: flex;
+    display: block;
     background: #f5f7fb;
     color: #1e293b;
 }
@@ -19,7 +19,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-
+    width: 100%;
     padding: 0 25px;
 }
 
@@ -27,9 +27,9 @@ body {
 .topbar .left {
     display: flex;
     align-items: center;
-    gap: 2px;
-    margin-right: 740px;
-    margin-left: -25px;
+    gap: 15px;
+
+    flex: 1;
 }
 
 /* MENU ICON *
@@ -44,6 +44,7 @@ body {
 
 .logo img {
     width: 200px;
+    max-width: 100%;
 }
 
 /* SEARCH */
@@ -58,7 +59,8 @@ body {
     border: 1.5px solid #94a3b8;
     border-radius: 20px;
 
-    width: 240px;
+     width: 240px;
+    max-width: 100%;
 }
 
 /* INPUT */
@@ -89,6 +91,8 @@ body {
     display: flex;
     align-items: center;
     gap: 18px;
+
+    margin-left: auto;
 }
 
 /* NORMAL ICONS */
@@ -216,7 +220,7 @@ body {
 }
 /* SIDEBAR */
 .sidebar {
-    position: absolute; /* 🔥 not fixed anymore */
+     position: fixed;/* 🔥 not fixed anymore */
     top: 70px;
     left: 0;
     width: 90px;

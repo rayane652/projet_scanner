@@ -130,14 +130,37 @@ nav a.active {
 .hero {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
+    flex-wrap: wrap;
 
     padding: 50px 80px;
     gap: 100px;
-
+    position: relative;
+    overflow: hidden;
     min-height: calc(100vh - 70px);
 }
+.hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
 
+    background-image: 
+        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+
+    background-size: 40px 40px;
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+
+    background: radial-gradient(circle at center, rgba(1,220,186,0.2), transparent 70%);
+    pointer-events: none;
+}
 /* LEFT */
 .hero-left {
     max-width: 520px;
@@ -176,7 +199,24 @@ nav a.active {
 
 /* RIGHT FORM */
 .hero-right {
-    width: 420px;
+    width: 100%;
+    max-width: 420px;
+}
+@media (max-width: 900px) {
+    .hero {
+        flex-direction: column;
+        text-align: center;
+        padding: 40px 20px;
+        gap: 40px;
+    }
+
+    .hero-left {
+        max-width: 100%;
+    }
+
+    .buttons {
+        justify-content: center;
+    }
 }
 
 /* FORM BOX */
@@ -628,30 +668,10 @@ form textarea {
     );
       /* 🔥 IMPORTANT */
     overflow: hidden; 
+    position: relative;
 }
 
-/* subtle grid like template */
-.cta::before {
-    content: "";
-    position: absolute;
-    inset: 0;
 
-    background-image: 
-        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
-    pointer-events: none;
-    background-size: 40px 40px;
-    opacity: 0.4;
-}
-
-/* glow overlay */
-.cta::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-pointer-events: none;
-    background: radial-gradient(circle at center, rgba(1,220,186,0.2), transparent 70%);
-}
 
 /* content above layers */
 .cta-content {
