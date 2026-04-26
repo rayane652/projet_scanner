@@ -6,6 +6,7 @@ from modules.port_scanner import scan_ports
 from modules.web_scanner import scan_website
 from modules.cve_scanner import search_cves
 from modules.utils import resolve_host
+from modules.vuln_engine import run_vuln_scan
 
 app = Flask(__name__)
 app.secret_key = "vulnix_secret_key"
@@ -57,10 +58,11 @@ def run_scan():
     # ===== PORT SCAN =====
     if scan_type == "port":
         ip = resolve_host(target)
+
         if not ip:
             result = {"error": "Invalid target"}
         else:
-            result = scan_ports(ip)
+            result = run_vuln_scan(ip)
 
     # ===== WEB SCAN =====
     elif scan_type == "web":
@@ -178,4 +180,5 @@ def logout():
 
 # ================= RUN =================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
+

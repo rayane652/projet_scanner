@@ -1,24 +1,25 @@
-import requests
+import sqlite3
 
-def search_cves(keyword):
-    url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={keyword}&resultsPerPage=5"
+def search_cves(product, version):
+    conn = sqlite3.connect("cve.db")
+    cursor = conn.cursor()
 
-    try:
-        response = requests.get(url, timeout=5)
-        data = response.json()
+    query = f"%{product}%{version}%"
 
-        results = []
+    cursor.execute(
+        "SELECT id, description FROM cves WHERE description LIKE ? LIMIT 5",
+        (query,)
+    )
 
-        for item in data.get("vulnerabilities", []):
-            cve = item["cve"]["id"]
-            desc = item["cve"]["descriptions"][0]["value"]
+    results = []
 
-            results.append({
-                "cve": cve,
-                "description": desc[:150]
-            })
+    for row in cursor.fetchall():
+        results.append({
+            "cve": row[0],
+            "description": row[1][:120],
+            "severity": "UNKNOWN"
+        })
 
-        return results
+    conn.close()
 
-    except:
-        return []
+    return results

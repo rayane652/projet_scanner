@@ -299,3 +299,9 @@ body {
 .side-item.active i {
     color: #7f30cb;
 }
+
+.main-content {
+    margin-left:  90px;
+    margin-top: 70px;
+    padding: 20px;
+}

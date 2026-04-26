@@ -1,5 +1,27 @@
-{% extends "base.html" %}
+<h2>Scan Results for {{ target }}</h2>
 
-{% block content %}
+{% for r in results %}
+<div style="border:1px solid #ddd; margin:15px; padding:15px; border-radius:10px;">
 
-{% endblock %}
+    <h3>
+        Port {{ r.port }} 
+        ({{ r.service }} {{ r.version }})
+    </h3>
+
+    <p><b>Banner:</b> {{ r.banner }}</p>
+
+    {% if r.cves %}
+        <ul>
+        {% for c in r.cves %}
+            <li>
+                <b>{{ c.cve }}</b> 
+                - {{ c.severity }}
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p style="color:green;">No vulnerabilities found</p>
+    {% endif %}
+
+</div>
+{% endfor %}
