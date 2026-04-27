@@ -3,6 +3,7 @@ const signupForm = document.getElementById("signup-form");
 const loginForm = document.getElementById("login-form");
 const title = document.getElementById("form-title");
 const subtitle = document.getElementById("form-subtitle");
+const switchLabel = document.getElementById("switch-label");
 
 /* ✅ SYNC WITH FLASK */
 let isLogin = window.initialLoginState === true || window.initialLoginState === "true";
@@ -44,6 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         title.innerText = "Welcome Back";
         subtitle.innerText = "Log in to continue scanning.";
+        switchLabel.innerText = "Don't have an account?";
         toggle.innerText = "Sign up";
     } else {
         signupForm.style.display = "block";
@@ -51,6 +53,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         title.innerText = "Create Account";
         subtitle.innerText = "Start scanning your system securely.";
+        switchLabel.innerText = "Already have an account?";
         toggle.innerText = "Log in";
     }
 
@@ -83,6 +86,7 @@ toggle.addEventListener("click", () => {
 
             title.innerText = "Welcome Back";
             subtitle.innerText = "Log in to continue scanning.";
+            switchLabel.innerText = "Don't have an account?";
             toggle.innerText = "Sign up";
         }, 200);
     } else {
@@ -94,6 +98,7 @@ toggle.addEventListener("click", () => {
 
             title.innerText = "Create Account";
             subtitle.innerText = "Start scanning your system securely.";
+            switchLabel.innerText = "Already have an account?";
             toggle.innerText = "Log in";
         }, 200);
     }

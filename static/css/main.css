@@ -309,7 +309,7 @@ form textarea {
 .switch-text {
     margin-top: 18px;
     font-size: 14px;
-    color: #94a3b8;
+    color: #ffffff;
     text-align: center;
 }
 
@@ -317,6 +317,16 @@ form textarea {
     color: #01dcba;
     cursor: pointer;
     font-weight: 600;
+}
+
+.switch-text #switch-label {
+    color: #ffffff;
+    cursor: default;
+}
+
+.switch-text #toggle-form {
+    text-decoration: underline;
+    text-underline-offset: 3px;
 }
 
 /* FADE ANIMATION */

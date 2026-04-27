@@ -1,13 +1,39 @@
 import socket
+from urllib.parse import urlparse
 
 
 HTTP_PORTS = {80, 443, 8000, 8080, 8081, 8443, 8888}
 
 
+def normalize_target(target):
+    target = (target or "").strip()
+
+    if not target:
+        return ""
+
+    parsed = urlparse(target)
+
+    if not parsed.hostname and "://" not in target:
+        parsed = urlparse(f"//{target}")
+
+    if parsed.hostname:
+        return parsed.hostname
+
+    if "://" in target:
+        return ""
+
+    return target.split("/")[0].split(":")[0]
+
+
 def resolve_host(target):
+    host = normalize_target(target)
+
+    if not host:
+        return None
+
     try:
-        return socket.gethostbyname(target)
-    except socket.gaierror:
+        return socket.gethostbyname(host)
+    except (socket.gaierror, TypeError, UnicodeError):
         return None
 
 

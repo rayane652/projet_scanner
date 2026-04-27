@@ -135,11 +135,12 @@ def signup():
 
     conn.close()
 
-    return render_template(
-        "main.html",
-        message="Account created successfully ✅",
-        show_login=True
-    )
+    session["user"] = {
+        "name": name,
+        "email": email
+    }
+
+    return redirect(url_for("dashboard"))
 
 
 # ================= LOGIN =================

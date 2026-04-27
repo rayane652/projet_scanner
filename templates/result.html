@@ -32,6 +32,9 @@
         <p style="color:green;">No CVEs found</p>
     {% endif %}
 
+{% elif scan_type == "port" and results == [] %}
+    <p style="color:green;">No open ports found on the scanned ports.</p>
+
 {% elif results %}
     {% for r in results %}
         <div style="border:1px solid #ddd; margin:15px 0; padding:15px; border-radius:10px;">
