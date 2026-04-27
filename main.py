@@ -9,6 +9,7 @@ from werkzeug.serving import WSGIRequestHandler
 # 🔥 IMPORT YOUR MODULES
 from modules.web_scanner import scan_website
 from modules.cve_scanner import search_cves
+from modules.risk_report import build_security_report
 from modules.utils import resolve_host
 from modules.vuln_engine import run_vuln_scan
 
@@ -99,8 +100,23 @@ def run_scan():
 
     result = None
 
+    # ===== SECURITY SCAN =====
+    if scan_type == "security":
+        ip = resolve_host(target)
+
+        if not ip:
+            result = {"error": "Invalid target"}
+        else:
+            port_results = run_vuln_scan(ip)
+            web_result = scan_website(target)
+            result = build_security_report(
+                target,
+                port_results=port_results,
+                web_result=web_result,
+            )
+
     # ===== PORT SCAN =====
-    if scan_type == "port":
+    elif scan_type == "port":
         ip = resolve_host(target)
 
         if not ip:

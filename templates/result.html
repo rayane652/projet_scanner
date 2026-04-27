@@ -3,7 +3,109 @@
 {% block content %}
 <h2>Scan Results{% if target %} for {{ target }}{% endif %}</h2>
 
-{% if scan_type == "web" and results is mapping %}
+{% if scan_type == "security" and results is mapping and not results.error %}
+    <section class="security-report">
+        <div class="report-header">
+            <div>
+                <p class="report-kicker">Security scan</p>
+                <h3>{{ results.target }}</h3>
+            </div>
+
+            <div class="risk-score risk-{{ results.risk_level|lower }}">
+                <span>{{ results.risk_level }}</span>
+                <strong>{{ results.risk_score }}</strong>
+                <small>/100</small>
+            </div>
+        </div>
+
+        <div class="metric-grid">
+            <div class="metric-card">
+                <span>Open Ports</span>
+                <strong>{{ results.summary.open_ports }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Services</span>
+                <strong>{{ results.summary.services }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>CVEs</span>
+                <strong>{{ results.summary.cves }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Findings</span>
+                <strong>{{ results.summary.findings }}</strong>
+            </div>
+        </div>
+
+        <div class="severity-grid">
+            <div class="severity-tile severity-critical">Critical <b>{{ results.severity_counts.critical }}</b></div>
+            <div class="severity-tile severity-high">High <b>{{ results.severity_counts.high }}</b></div>
+            <div class="severity-tile severity-medium">Medium <b>{{ results.severity_counts.medium }}</b></div>
+            <div class="severity-tile severity-low">Low <b>{{ results.severity_counts.low }}</b></div>
+            <div class="severity-tile severity-info">Info <b>{{ results.severity_counts.info }}</b></div>
+        </div>
+
+        {% if results.recommendations %}
+            <div class="report-panel">
+                <h3>Recommended Actions</h3>
+                <ul class="recommendation-list">
+                {% for recommendation in results.recommendations %}
+                    <li>{{ recommendation }}</li>
+                {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
+        {% if results.findings %}
+            <div class="report-panel">
+                <h3>Findings</h3>
+                <div class="findings-table">
+                    <div class="findings-row findings-head">
+                        <span>Severity</span>
+                        <span>Finding</span>
+                        <span>Asset</span>
+                        <span>Recommendation</span>
+                    </div>
+
+                    {% for finding in results.findings %}
+                        <div class="findings-row">
+                            <span class="severity-pill severity-{{ finding.severity|lower }}">{{ finding.severity }}</span>
+                            <span>
+                                <b>{{ finding.name }}</b>
+                                <small>{{ finding.detail }}</small>
+                                {% if finding.evidence %}
+                                    <small>Evidence: {{ finding.evidence }}</small>
+                                {% endif %}
+                            </span>
+                            <span>{{ finding.asset }}</span>
+                            <span>{{ finding.recommendation }}</span>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% else %}
+            <div class="report-panel">
+                <p style="color:green;">No findings detected.</p>
+            </div>
+        {% endif %}
+
+        {% if results.services %}
+            <div class="report-panel">
+                <h3>Detected Services</h3>
+                <div class="service-list">
+                    {% for service in results.services %}
+                        <span>
+                            {{ service.port }} / {{ service.service }}
+                            {% if service.product %}- {{ service.product }}{% endif %}
+                            {% if service.version %} {{ service.version }}{% endif %}
+                        </span>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+    </section>
+
+{% elif scan_type == "web" and results is mapping %}
     <div style="border:1px solid #ddd; margin:15px 0; padding:15px; border-radius:10px;">
         {% if results.error %}
             <p style="color:#b00020;">{{ results.error }}</p>
