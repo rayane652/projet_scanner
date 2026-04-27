@@ -3,19 +3,70 @@
 {% block content %}
 <h2>Scan Results{% if target %} for {{ target }}{% endif %}</h2>
 
-{% if results is mapping and results.error %}
-    <p style="color:#b00020;">{{ results.error }}</p>
-
-{% elif scan_type == "web" and results is mapping %}
+{% if scan_type == "web" and results is mapping %}
     <div style="border:1px solid #ddd; margin:15px 0; padding:15px; border-radius:10px;">
         {% if results.error %}
             <p style="color:#b00020;">{{ results.error }}</p>
+            {% if results.errors %}
+                <ul>
+                {% for error in results.errors %}
+                    <li>{{ error }}</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
         {% else %}
+            <h3>{{ results.title or results.final_url }}</h3>
+            <p><b>Final URL:</b> {{ results.final_url }}</p>
             <p><b>Status:</b> {{ results.status_code }}</p>
+            <p><b>Content Type:</b> {{ results.content_type or "Unknown" }}</p>
             <p><b>Server:</b> {{ results.server or "Unknown" }}</p>
             <p><b>Powered By:</b> {{ results.powered_by or "Unknown" }}</p>
+
+            {% if results.technologies %}
+                <h4>Technology Hints</h4>
+                <ul>
+                {% for tech in results.technologies %}
+                    <li>{{ tech }}</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+
+            {% if results.findings %}
+                <h4>Findings</h4>
+                <ul>
+                {% for finding in results.findings %}
+                    <li>
+                        <b>{{ finding.severity }}</b>
+                        - {{ finding.name }}: {{ finding.detail }}
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p style="color:green;">No basic web findings detected</p>
+            {% endif %}
+
+            {% if results.forms %}
+                <h4>Forms</h4>
+                <ul>
+                {% for form in results.forms %}
+                    <li>{{ form.method }} {{ form.action or "/" }}</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+
+            {% if results.interesting_paths %}
+                <h4>Interesting Paths</h4>
+                <ul>
+                {% for path in results.interesting_paths %}
+                    <li>{{ path.path }} - HTTP {{ path.status }}</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
         {% endif %}
     </div>
+
+{% elif results is mapping and results.error %}
+    <p style="color:#b00020;">{{ results.error }}</p>
 
 {% elif scan_type == "cve" %}
     {% if results %}
