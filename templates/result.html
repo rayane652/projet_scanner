@@ -1,27 +1,65 @@
-<h2>Scan Results for {{ target }}</h2>
+{% extends "base.html" %}
 
-{% for r in results %}
-<div style="border:1px solid #ddd; margin:15px; padding:15px; border-radius:10px;">
+{% block content %}
+<h2>Scan Results{% if target %} for {{ target }}{% endif %}</h2>
 
-    <h3>
-        Port {{ r.port }} 
-        ({{ r.service }} {{ r.version }})
-    </h3>
+{% if results is mapping and results.error %}
+    <p style="color:#b00020;">{{ results.error }}</p>
 
-    <p><b>Banner:</b> {{ r.banner }}</p>
+{% elif scan_type == "web" and results is mapping %}
+    <div style="border:1px solid #ddd; margin:15px 0; padding:15px; border-radius:10px;">
+        {% if results.error %}
+            <p style="color:#b00020;">{{ results.error }}</p>
+        {% else %}
+            <p><b>Status:</b> {{ results.status_code }}</p>
+            <p><b>Server:</b> {{ results.server or "Unknown" }}</p>
+            <p><b>Powered By:</b> {{ results.powered_by or "Unknown" }}</p>
+        {% endif %}
+    </div>
 
-    {% if r.cves %}
-        <ul>
-        {% for c in r.cves %}
-            <li>
-                <b>{{ c.cve }}</b> 
-                - {{ c.severity }}
-            </li>
+{% elif scan_type == "cve" %}
+    {% if results %}
+        {% for c in results %}
+            <div style="border:1px solid #ddd; margin:15px 0; padding:15px; border-radius:10px;">
+                <h3>{{ c.cve }} - {{ c.severity }}</h3>
+                {% if c.score %}
+                    <p><b>CVSS:</b> {{ c.score }}</p>
+                {% endif %}
+                <p>{{ c.description }}</p>
+            </div>
         {% endfor %}
-        </ul>
     {% else %}
-        <p style="color:green;">No vulnerabilities found</p>
+        <p style="color:green;">No CVEs found</p>
     {% endif %}
 
-</div>
-{% endfor %}
+{% elif results %}
+    {% for r in results %}
+        <div style="border:1px solid #ddd; margin:15px 0; padding:15px; border-radius:10px;">
+            <h3>
+                Port {{ r.port }}
+                ({{ r.service }}{% if r.version %} {{ r.version }}{% endif %})
+            </h3>
+
+            <p><b>Product:</b> {{ r.product or "Unknown" }}</p>
+            <p><b>Banner:</b> {{ r.banner or "No banner received" }}</p>
+
+            {% if r.cves %}
+                <ul>
+                {% for c in r.cves %}
+                    <li>
+                        <b>{{ c.cve }}</b>
+                        - {{ c.severity }}
+                        {% if c.score %}(CVSS {{ c.score }}){% endif %}
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p style="color:green;">No vulnerabilities found</p>
+            {% endif %}
+        </div>
+    {% endfor %}
+
+{% else %}
+    <p>No results found.</p>
+{% endif %}
+{% endblock %}

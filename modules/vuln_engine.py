@@ -17,8 +17,6 @@ def run_vuln_scan(target):
 
         service, version, product = detect_service_and_version(port, banner)
 
-        print("BANNER:", banner)
-
         cves = []
 
         if product:

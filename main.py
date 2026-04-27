@@ -70,13 +70,14 @@ def run_scan():
 
     # ===== CVE SCAN =====
     elif scan_type == "cve":
-        result = search_cves(target)
+        result = search_cves(target, "")
 
     return render_template(
         "result.html",
         user=session["user"],
         active="result",
         results=result,
+        target=target,
         scan_type=scan_type
     )
 

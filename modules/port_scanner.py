@@ -3,6 +3,12 @@ from concurrent.futures import ThreadPoolExecutor
 from modules.utils import grab_banner
 
 
+COMMON_PORTS = {
+    1433, 1521, 2049, 3306, 3389, 5432, 5900, 6379, 8000, 8080,
+    8081, 8443, 9200, 27017,
+}
+
+
 # ================= PORT CHECK =================
 def scan_port(ip, port):
     try:
@@ -27,7 +33,10 @@ def scan_port(ip, port):
 
 
 # ================= FULL SCAN =================
-def scan_ports(ip, ports=range(1, 1025), threads=100):
+def scan_ports(ip, ports=None, threads=100):
+    if ports is None:
+        ports = sorted(set(range(1, 1025)) | COMMON_PORTS)
+
     open_ports = []
 
     with ThreadPoolExecutor(max_workers=threads) as executor:
