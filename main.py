@@ -7,6 +7,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.serving import WSGIRequestHandler
 
 # 🔥 IMPORT YOUR MODULES
+from modules.auth_scanner import run_authenticated_checks
 from modules.web_scanner import scan_website
 from modules.cve_scanner import search_cves
 from modules.risk_report import build_security_report
@@ -96,6 +97,7 @@ def run_scan():
         return redirect(url_for("home"))
 
     scan_type = request.form.get("type")
+    scan_mode = request.form.get("scan_mode", "unauthenticated")
     target = request.form.get("target")
 
     result = None
@@ -109,10 +111,22 @@ def run_scan():
         else:
             port_results = run_vuln_scan(ip)
             web_result = scan_website(target)
+            auth_result = None
+
+            if scan_mode == "authenticated":
+                auth_result = run_authenticated_checks(
+                    target,
+                    request.form.get("auth_type"),
+                    request.form.get("auth_username"),
+                    request.form.get("auth_password"),
+                )
+
             result = build_security_report(
                 target,
                 port_results=port_results,
                 web_result=web_result,
+                scan_mode=scan_mode,
+                auth_result=auth_result,
             )
 
     # ===== PORT SCAN =====

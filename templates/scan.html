@@ -2,26 +2,59 @@
 
 {% block content %}
 
-<div style="margin-left:20px; margin-top:20px;">
+<div class="scan-form-wrap">
 
-    <form action="/run_scan" method="POST">
+    <form class="scan-form" action="/run_scan" method="POST">
 
         <input type="text" name="target" placeholder="IP, domain, or URL" required
-               style="padding:8px; width:250px;">
+               class="scan-input">
 
-        <select name="type" style="padding:8px;">
+        <select name="type" id="scan-type" class="scan-select">
             <option value="security">Security Scan</option>
             <option value="port">Port Scan</option>
             <option value="web">Web Scan</option>
             <option value="cve">CVE Search</option>
         </select>
 
-        <button type="submit" style="padding:8px 15px;">
+        <select name="scan_mode" id="scan-mode" class="scan-select">
+            <option value="unauthenticated">Non-authenticated Scan</option>
+            <option value="authenticated">Authenticated Scan</option>
+        </select>
+
+        <div id="credential-fields" class="credential-fields">
+            <select name="auth_type" class="scan-select">
+                <option value="http_basic">HTTP Basic</option>
+                <option value="ssh">SSH</option>
+            </select>
+
+            <input type="text" name="auth_username" placeholder="Username"
+                   autocomplete="username" class="scan-input">
+
+            <input type="password" name="auth_password" placeholder="Password"
+                   autocomplete="current-password" class="scan-input">
+        </div>
+
+        <button type="submit" class="scan-button">
             Start Scan
         </button>
 
     </form>
 
 </div>
+
+<script>
+    const scanType = document.getElementById("scan-type");
+    const scanMode = document.getElementById("scan-mode");
+    const credentialFields = document.getElementById("credential-fields");
+
+    function updateCredentialFields() {
+        const canAuthenticate = scanType.value === "security" && scanMode.value === "authenticated";
+        credentialFields.style.display = canAuthenticate ? "grid" : "none";
+    }
+
+    scanType.addEventListener("change", updateCredentialFields);
+    scanMode.addEventListener("change", updateCredentialFields);
+    updateCredentialFields();
+</script>
 
 {% endblock %}

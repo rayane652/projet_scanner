@@ -204,15 +204,56 @@ def _direct_cve_findings(cve_results, target):
     return findings
 
 
-def build_security_report(target, port_results=None, web_result=None, cve_results=None):
+def _auth_findings(auth_result):
+    if not auth_result:
+        return []
+
+    status = auth_result.get("status")
+    auth_type = auth_result.get("type_label") or auth_result.get("type") or "credentials"
+
+    if status == "success":
+        return [_finding(
+            "INFO",
+            "Authenticated checks completed",
+            auth_type,
+            auth_result.get("message") or "Credentials were accepted.",
+            "Use authenticated results to prioritize patching and configuration fixes.",
+        )]
+
+    if status == "unavailable":
+        severity = "LOW"
+        name = "Authenticated checks unavailable"
+    else:
+        severity = "LOW"
+        name = "Authenticated checks failed"
+
+    return [_finding(
+        severity,
+        name,
+        auth_type,
+        auth_result.get("message") or "The scanner could not complete credentialed checks.",
+        "Verify the credential type, username, password, and network access, then rescan.",
+    )]
+
+
+def build_security_report(
+    target,
+    port_results=None,
+    web_result=None,
+    cve_results=None,
+    scan_mode="unauthenticated",
+    auth_result=None,
+):
     port_results = port_results or []
     cve_results = cve_results or []
+    scan_mode = scan_mode if scan_mode == "authenticated" else "unauthenticated"
     counts = _empty_counts()
 
     findings = (
         _port_findings(port_results)
         + _web_findings(web_result)
         + _direct_cve_findings(cve_results, target)
+        + _auth_findings(auth_result)
     )
 
     for finding in findings:
@@ -243,6 +284,13 @@ def build_security_report(target, port_results=None, web_result=None, cve_result
 
     return {
         "target": target,
+        "scan_mode": scan_mode,
+        "scan_mode_label": (
+            "Authenticated Scan"
+            if scan_mode == "authenticated"
+            else "Non-authenticated Scan"
+        ),
+        "authentication": auth_result,
         "risk_score": score,
         "risk_level": _risk_level(score),
         "severity_counts": counts,

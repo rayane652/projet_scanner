@@ -9,6 +9,14 @@
             <div>
                 <p class="report-kicker">Security scan</p>
                 <h3>{{ results.target }}</h3>
+                <div class="scan-badges">
+                    <span>{{ results.scan_mode_label }}</span>
+                    {% if results.authentication %}
+                        <span class="auth-status auth-{{ results.authentication.status }}">
+                            {{ results.authentication.type_label }}: {{ results.authentication.status }}
+                        </span>
+                    {% endif %}
+                </div>
             </div>
 
             <div class="risk-score risk-{{ results.risk_level|lower }}">
@@ -17,6 +25,39 @@
                 <small>/100</small>
             </div>
         </div>
+
+        {% if results.authentication %}
+            <div class="report-panel auth-panel">
+                <h3>Credentialed Checks</h3>
+                <p><b>Status:</b> {{ results.authentication.message }}</p>
+                <p><b>Credential Type:</b> {{ results.authentication.type_label }}</p>
+                <p><b>Username:</b> {{ results.authentication.username }}</p>
+
+                {% if results.authentication.checks %}
+                    <ul class="auth-check-list">
+                    {% for check in results.authentication.checks %}
+                        <li class="auth-check auth-check-{{ check.status }}">
+                            <b>{{ check.name }}</b>
+                            <span>{{ check.detail }}</span>
+                        </li>
+                    {% endfor %}
+                    </ul>
+                {% endif %}
+
+                {% if results.authentication.inventory %}
+                    <div class="inventory-grid">
+                    {% for key, value in results.authentication.inventory.items() %}
+                        {% if value %}
+                            <div>
+                                <span>{{ key }}</span>
+                                <strong>{{ value }}</strong>
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endif %}
 
         <div class="metric-grid">
             <div class="metric-card">
