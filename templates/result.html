@@ -7,7 +7,7 @@
     <section class="security-report">
         <div class="report-header">
             <div>
-                <p class="report-kicker">Security scan</p>
+                <p class="report-kicker">Security scan report</p>
                 <h3>{{ results.target }}</h3>
                 <div class="scan-badges">
                     <span>{{ results.scan_mode_label }}</span>
@@ -23,6 +23,23 @@
                 <span>{{ results.risk_level }}</span>
                 <strong>{{ results.risk_score }}</strong>
                 <small>/100</small>
+            </div>
+        </div>
+
+        <div class="severity-overview">
+            <div class="severity-circle severity-circle-main" style="--ring: {{ results.severity_ring_style }};">
+                <div class="circle-ring">
+                    <strong>{{ results.risk_score }}</strong>
+                    <span>{{ results.risk_level }}</span>
+                </div>
+            </div>
+
+            <div class="severity-mini-counts">
+                {% for item in results.severity_breakdown %}
+                    <span class="severity-mini severity-{{ item.key }}">
+                        {{ item.label }} <b>{{ item.count }}</b>
+                    </span>
+                {% endfor %}
             </div>
         </div>
 
@@ -50,7 +67,15 @@
                         {% if value %}
                             <div>
                                 <span>{{ key }}</span>
-                                <strong>{{ value }}</strong>
+                                {% if value is string %}
+                                    <strong>{{ value }}</strong>
+                                {% else %}
+                                    <ul class="inventory-list">
+                                    {% for entry in value %}
+                                        <li>{{ entry }}</li>
+                                    {% endfor %}
+                                    </ul>
+                                {% endif %}
                             </div>
                         {% endif %}
                     {% endfor %}
@@ -65,25 +90,62 @@
                 <strong>{{ results.summary.open_ports }}</strong>
             </div>
             <div class="metric-card">
-                <span>Services</span>
-                <strong>{{ results.summary.services }}</strong>
+                <span>Vulnerabilities</span>
+                <strong>{{ results.summary.vulnerabilities }}</strong>
             </div>
             <div class="metric-card">
-                <span>CVEs</span>
-                <strong>{{ results.summary.cves }}</strong>
+                <span>Web Paths</span>
+                <strong>{{ results.summary.web_paths }}</strong>
             </div>
             <div class="metric-card">
-                <span>Findings</span>
-                <strong>{{ results.summary.findings }}</strong>
+                <span>Missing Updates</span>
+                <strong>{{ results.summary.missing_updates }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Scanned Items</span>
+                <strong>{{ results.summary.scanned_items }}</strong>
             </div>
         </div>
 
-        <div class="severity-grid">
-            <div class="severity-tile severity-critical">Critical <b>{{ results.severity_counts.critical }}</b></div>
-            <div class="severity-tile severity-high">High <b>{{ results.severity_counts.high }}</b></div>
-            <div class="severity-tile severity-medium">Medium <b>{{ results.severity_counts.medium }}</b></div>
-            <div class="severity-tile severity-low">Low <b>{{ results.severity_counts.low }}</b></div>
-            <div class="severity-tile severity-info">Info <b>{{ results.severity_counts.info }}</b></div>
+        <div class="report-panel">
+            <h3>Scan Inventory</h3>
+            <div class="inventory-summary-grid">
+                <div>
+                    <span>System</span>
+                    <strong>{{ results.system_profile.name }}</strong>
+                </div>
+                <div>
+                    <span>OS Family</span>
+                    <strong>{{ results.system_profile.family }}</strong>
+                </div>
+                <div>
+                    <span>Confidence</span>
+                    <strong>{{ results.system_profile.confidence }}</strong>
+                </div>
+                <div>
+                    <span>Services</span>
+                    <strong>{{ results.summary.services }}</strong>
+                </div>
+                <div>
+                    <span>CVEs</span>
+                    <strong>{{ results.summary.cves }}</strong>
+                </div>
+                <div>
+                    <span>Web Findings</span>
+                    <strong>{{ results.summary.web_findings }}</strong>
+                </div>
+                <div>
+                    <span>Total Findings</span>
+                    <strong>{{ results.summary.findings }}</strong>
+                </div>
+            </div>
+            {% if results.system_profile.evidence %}
+                <div class="system-evidence">
+                    {% for evidence in results.system_profile.evidence %}
+                        <span>{{ evidence }}</span>
+                    {% endfor %}
+                </div>
+            {% endif %}
         </div>
 
         {% if results.recommendations %}
@@ -97,49 +159,144 @@
             </div>
         {% endif %}
 
-        {% if results.findings %}
+        <div class="report-split">
             <div class="report-panel">
-                <h3>Findings</h3>
-                <div class="findings-table">
-                    <div class="findings-row findings-head">
-                        <span>Severity</span>
-                        <span>Finding</span>
-                        <span>Asset</span>
-                        <span>Recommendation</span>
-                    </div>
-
-                    {% for finding in results.findings %}
-                        <div class="findings-row">
-                            <span class="severity-pill severity-{{ finding.severity|lower }}">{{ finding.severity }}</span>
-                            <span>
-                                <b>{{ finding.name }}</b>
-                                <small>{{ finding.detail }}</small>
-                                {% if finding.evidence %}
-                                    <small>Evidence: {{ finding.evidence }}</small>
-                                {% endif %}
-                            </span>
-                            <span>{{ finding.asset }}</span>
-                            <span>{{ finding.recommendation }}</span>
+                <h3>Open Ports</h3>
+                {% if results.open_ports %}
+                    <div class="compact-list">
+                    {% for port in results.open_ports %}
+                        <div class="compact-item">
+                            <span class="severity-dot severity-{{ port.severity|lower }}"></span>
+                            <div>
+                                <b>{{ port.port }} / {{ port.service }}</b>
+                                <small>
+                                    {{ port.product or "Unknown product" }}
+                                    {% if port.version %} {{ port.version }}{% endif %}
+                                    - {{ port.cve_count }} CVE(s)
+                                </small>
+                            </div>
                         </div>
                     {% endfor %}
-                </div>
+                    </div>
+                {% else %}
+                    <p style="color:green;">No open ports found.</p>
+                {% endif %}
             </div>
-        {% else %}
-            <div class="report-panel">
-                <p style="color:green;">No findings detected.</p>
-            </div>
-        {% endif %}
 
-        {% if results.services %}
             <div class="report-panel">
-                <h3>Detected Services</h3>
-                <div class="service-list">
-                    {% for service in results.services %}
-                        <span>
-                            {{ service.port }} / {{ service.service }}
-                            {% if service.product %}- {{ service.product }}{% endif %}
-                            {% if service.version %} {{ service.version }}{% endif %}
-                        </span>
+                <h3>Web Paths</h3>
+                {% if results.web_paths %}
+                    <div class="compact-list">
+                    {% for path in results.web_paths %}
+                        <div class="compact-item">
+                            <span class="severity-dot severity-info"></span>
+                            <div>
+                                <b>{{ path.path }}</b>
+                                <small>HTTP {{ path.status }} - {{ path.url }}</small>
+                            </div>
+                        </div>
+                    {% endfor %}
+                    </div>
+                {% else %}
+                    <p style="color:green;">No interesting paths found.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="report-split">
+            <div class="report-panel">
+                <h3>Vulnerabilities</h3>
+                {% if results.vulnerabilities %}
+                    <div class="compact-list">
+                    {% for vuln in results.vulnerabilities %}
+                        <div class="compact-item">
+                            <span class="severity-dot severity-{{ vuln.severity|lower }}"></span>
+                            <div>
+                                <b>{{ vuln.id }}</b>
+                                <small>
+                                    {{ vuln.asset }} - {{ vuln.product or "Unknown product" }}
+                                    {% if vuln.score %}- CVSS {{ vuln.score }}{% endif %}
+                                </small>
+                            </div>
+                        </div>
+                    {% endfor %}
+                    </div>
+                {% else %}
+                    <p style="color:green;">No CVE vulnerabilities matched.</p>
+                {% endif %}
+            </div>
+
+            <div class="report-panel">
+                <h3>Missing Updates</h3>
+                {% if results.missing_updates %}
+                    <div class="compact-list">
+                    {% for update in results.missing_updates %}
+                        <div class="compact-item">
+                            <span class="severity-dot severity-{{ update.severity|lower }}"></span>
+                            <div>
+                                <b>{{ update.product }}</b>
+                                <small>{{ update.asset }} - {{ update.version }}</small>
+                            </div>
+                        </div>
+                    {% endfor %}
+                    </div>
+                {% else %}
+                    <p style="color:green;">No missing updates inferred from CVE matches.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if results.scanned_items %}
+            <div class="report-panel">
+                <h3>Scanned Items Details</h3>
+                <div class="scan-detail-list">
+                    {% for item in results.scanned_items %}
+                        <details class="scan-detail severity-border-{{ item.severity|lower }}">
+                            <summary>
+                                <span class="severity-pill severity-{{ item.severity|lower }}">{{ item.severity }}</span>
+                                <span class="scan-detail-title">
+                                    <b>{{ item.title }}</b>
+                                    <small>{{ item.category }}{% if item.subtitle %} - {{ item.subtitle }}{% endif %}</small>
+                                </span>
+                                <span class="detail-chevron">Details</span>
+                            </summary>
+
+                            <div class="scan-detail-body">
+                                <p>{{ item.description }}</p>
+
+                                <div class="detail-grid">
+                                    {% for label, value in item.details %}
+                                        <div>
+                                            <span>{{ label }}</span>
+                                            <strong>{{ value }}</strong>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+
+                                {% if item.cves %}
+                                    <h4>CVEs</h4>
+                                    <div class="cve-list">
+                                    {% for cve in item.cves %}
+                                        <div class="cve-card severity-border-{{ cve.severity|lower }}">
+                                            <b>{{ cve.id }}</b>
+                                            <span>{{ cve.severity }}{% if cve.score %} - CVSS {{ cve.score }}{% endif %}</span>
+                                            {% if cve.description %}
+                                                <p>{{ cve.description }}</p>
+                                            {% endif %}
+                                        </div>
+                                    {% endfor %}
+                                    </div>
+                                {% endif %}
+
+                                {% if item.evidence %}
+                                    <h4>Evidence</h4>
+                                    <p class="evidence-text">{{ item.evidence }}</p>
+                                {% endif %}
+
+                                <h4>Recommendation</h4>
+                                <p>{{ item.recommendation }}</p>
+                            </div>
+                        </details>
                     {% endfor %}
                 </div>
             </div>

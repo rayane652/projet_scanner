@@ -28,11 +28,14 @@ PORT_SERVICES = {
     3389: "rdp",
     5432: "postgresql",
     5900: "vnc",
+    5985: "winrm",
+    5986: "winrm-ssl",
     6379: "redis",
     8000: "http",
     8080: "http-proxy",
     8443: "https-alt",
     9200: "elasticsearch",
+    5555: "adb",
     27017: "mongodb",
 }
 

@@ -12,6 +12,18 @@ AUTH_TYPE_LABELS = {
     "ssh": "SSH",
 }
 
+SSH_UPDATE_COMMAND = (
+    "if command -v apt >/dev/null 2>&1; then "
+    "apt list --upgradable 2>/dev/null | sed -n '2,21p'; "
+    "elif command -v dnf >/dev/null 2>&1; then "
+    "dnf -q check-update 2>/dev/null | sed -n '1,20p'; "
+    "elif command -v yum >/dev/null 2>&1; then "
+    "yum -q check-update 2>/dev/null | sed -n '1,20p'; "
+    "elif command -v zypper >/dev/null 2>&1; then "
+    "zypper --non-interactive list-updates 2>/dev/null | sed -n '1,20p'; "
+    "else true; fi"
+)
+
 
 def _base_result(auth_type, username, status, message, checks=None, inventory=None):
     return {
@@ -31,6 +43,14 @@ def _check(status, name, detail):
         "name": name,
         "detail": detail,
     }
+
+
+def _run_ssh_command(client, command, timeout=5):
+    try:
+        _, stdout, _ = client.exec_command(command, timeout=timeout)
+        return stdout.read().decode(errors="ignore").strip()
+    except Exception:
+        return ""
 
 
 def _http_basic_scan(target, username, password):
@@ -193,12 +213,29 @@ def _ssh_scan(target, username, password):
     for key, command in {
         "kernel": "uname -a",
         "user": "id -un",
+        "os": "cat /etc/os-release 2>/dev/null | head -n 3",
     }.items():
-        try:
-            _, stdout, _ = client.exec_command(command, timeout=5)
-            inventory[key] = stdout.read().decode(errors="ignore").strip()
-        except (paramiko.SSHException, OSError):
-            inventory[key] = ""
+        inventory[key] = _run_ssh_command(client, command)
+
+    package_updates = [
+        line.strip()
+        for line in _run_ssh_command(client, SSH_UPDATE_COMMAND, timeout=8).splitlines()
+        if line.strip()
+    ][:20]
+
+    if package_updates:
+        inventory["package_updates"] = package_updates
+        checks.append(_check(
+            "info",
+            "Package updates found",
+            f"{len(package_updates)} package update(s) were reported by the target.",
+        ))
+    else:
+        checks.append(_check(
+            "info",
+            "Package update check",
+            "No package updates were reported or the package manager was unsupported.",
+        ))
 
     client.close()
 
