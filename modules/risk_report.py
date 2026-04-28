@@ -299,6 +299,59 @@ def _auth_findings(auth_result):
 
     status = auth_result.get("status")
     auth_type = auth_result.get("type_label") or auth_result.get("type") or "credentials"
+    checks = auth_result.get("checks") or []
+    inventory = auth_result.get("inventory") or {}
+
+    deep_findings = []
+
+    for check in checks:
+        check_status = (check.get("status") or "info").lower()
+        severity = "INFO"
+        if check_status == "failed":
+            severity = "MEDIUM"
+        elif check_status == "success":
+            severity = "INFO"
+
+        deep_findings.append(_finding(
+            severity,
+            f"Auth check: {check.get('name') or 'Check'}",
+            auth_type,
+            check.get("detail") or "",
+            "Review authenticated scan evidence and remediate weak configurations.",
+            category="Authentication",
+        ))
+
+    if inventory.get("world_writable"):
+        deep_findings.append(_finding(
+            "HIGH",
+            "World-writable files in sensitive paths",
+            auth_type,
+            "Authenticated SSH checks discovered world-writable files under /etc, /var/www, or /opt.",
+            "Restrict file permissions to least privilege and audit ownership.",
+            evidence=", ".join((inventory.get("world_writable") or [])[:3]),
+            category="Authentication",
+        ))
+
+    if inventory.get("sudo_rights"):
+        deep_findings.append(_finding(
+            "MEDIUM",
+            "Privileged sudo rights detected",
+            auth_type,
+            "Authenticated account appears to have sudo capabilities.",
+            "Review sudoers configuration and remove unnecessary elevated access.",
+            evidence=", ".join((inventory.get("sudo_rights") or [])[:2]),
+            category="Authentication",
+        ))
+
+    if inventory.get("protected_paths"):
+        deep_findings.append(_finding(
+            "INFO",
+            "Credential-protected paths enumerated",
+            auth_type,
+            f"{len(inventory.get('protected_paths') or [])} protected web path(s) were accessible with credentials.",
+            "Review access controls and validate role-based restrictions.",
+            category="Authentication",
+        ))
 
     if status == "success":
         return [_finding(
@@ -308,7 +361,7 @@ def _auth_findings(auth_result):
             auth_result.get("message") or "Credentials were accepted.",
             "Use authenticated results to prioritize patching and configuration fixes.",
             category="Authentication",
-        )]
+        )] + deep_findings
 
     if status == "unavailable":
         severity = "LOW"
@@ -324,7 +377,7 @@ def _auth_findings(auth_result):
         auth_result.get("message") or "The scanner could not complete credentialed checks.",
         "Verify the credential type, username, password, and network access, then rescan.",
         category="Authentication",
-    )]
+    )] + deep_findings
 
 
 def _highest_severity(values, default="INFO"):
@@ -782,6 +835,66 @@ def _scanned_items(
                 ("Username", auth_result.get("username")),
             ],
         })
+
+        for check in auth_result.get("checks") or []:
+            check_status = (check.get("status") or "info").lower()
+            check_severity = "INFO"
+            if check_status == "failed":
+                check_severity = "MEDIUM"
+
+            items.append({
+                "category": "Authentication Check",
+                "severity": check_severity,
+                "title": check.get("name") or "Authenticated check",
+                "subtitle": auth_result.get("type_label") or "",
+                "description": check.get("detail") or "",
+                "evidence": f"Status: {check_status}",
+                "recommendation": "Review this authenticated check and harden the affected host/application.",
+                "cves": [],
+                "details": [
+                    ("Credential type", auth_result.get("type_label")),
+                    ("Check status", check_status),
+                    ("Username", auth_result.get("username")),
+                ],
+            })
+
+        inventory = auth_result.get("inventory") or {}
+
+        if inventory.get("world_writable"):
+            items.append({
+                "category": "Authentication Exposure",
+                "severity": "HIGH",
+                "title": "World-writable files found",
+                "subtitle": auth_result.get("type_label") or "",
+                "description": (
+                    "Authenticated checks found world-writable files in sensitive system/application paths."
+                ),
+                "evidence": ", ".join((inventory.get("world_writable") or [])[:3]),
+                "recommendation": "Fix permissions and ownership, then rerun an authenticated scan.",
+                "cves": [],
+                "details": [
+                    ("Affected files", len(inventory.get("world_writable") or [])),
+                    ("Credential type", auth_result.get("type_label")),
+                    ("Username", auth_result.get("username")),
+                ],
+            })
+
+        if inventory.get("sudo_rights"):
+            items.append({
+                "category": "Authentication Exposure",
+                "severity": "MEDIUM",
+                "title": "Sudo privileges detected",
+                "subtitle": auth_result.get("type_label") or "",
+                "description": "Authenticated account appears to have sudo privileges.",
+                "evidence": ", ".join((inventory.get("sudo_rights") or [])[:2]),
+                "recommendation": "Limit sudo rules to minimum required commands and users.",
+                "cves": [],
+                "details": [
+                    ("Sudo entries", len(inventory.get("sudo_rights") or [])),
+                    ("Credential type", auth_result.get("type_label")),
+                    ("Username", auth_result.get("username")),
+                ],
+            })
 
     items.sort(key=lambda item: SEVERITY_ORDER[_severity(item["severity"])])
     return items

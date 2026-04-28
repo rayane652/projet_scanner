@@ -12,6 +12,17 @@ AUTH_TYPE_LABELS = {
     "ssh": "SSH",
 }
 
+COMMON_AUTH_PATHS = [
+    "/",
+    "/admin",
+    "/administrator",
+    "/login",
+    "/wp-admin",
+    "/phpmyadmin",
+    "/server-status",
+    "/api",
+]
+
 SSH_UPDATE_COMMAND = (
     "if command -v apt >/dev/null 2>&1; then "
     "apt list --upgradable 2>/dev/null | sed -n '2,21p'; "
@@ -51,6 +62,10 @@ def _run_ssh_command(client, command, timeout=5):
         return stdout.read().decode(errors="ignore").strip()
     except Exception:
         return ""
+
+
+def _non_empty_lines(value, limit=20):
+    return [line.strip() for line in (value or "").splitlines() if line.strip()][:limit]
 
 
 def _http_basic_scan(target, username, password):
@@ -102,19 +117,86 @@ def _http_basic_scan(target, username, password):
             )
 
         if authenticated.status_code not in (401, 403) and authenticated.status_code < 500:
+            checks = [
+                _check(
+                    "success",
+                    "HTTP Basic login",
+                    f"{authenticated.url} returned HTTP {authenticated.status_code}.",
+                )
+            ]
+            inventory = {
+                "authenticated_url": authenticated.url,
+                "status_code": authenticated.status_code,
+            }
+
+            protected_paths = []
+            exposed_paths = []
+            errors = []
+
+            for path in COMMON_AUTH_PATHS:
+                path_url = authenticated.url.rstrip("/") + path
+                try:
+                    anon_resp = session.get(path_url, timeout=5, allow_redirects=True)
+                    auth_resp = session.get(
+                        path_url,
+                        auth=HTTPBasicAuth(username, password),
+                        timeout=5,
+                        allow_redirects=True,
+                    )
+                except requests.RequestException as exc:
+                    errors.append(f"{path}: {exc}")
+                    continue
+
+                if anon_resp.status_code in (401, 403) and auth_resp.status_code < 400:
+                    protected_paths.append(f"{path} -> {auth_resp.status_code}")
+                elif anon_resp.status_code < 400 and auth_resp.status_code < 400:
+                    exposed_paths.append(f"{path} -> public")
+
+            if protected_paths:
+                checks.append(_check(
+                    "success",
+                    "Credentialed web paths",
+                    f"{len(protected_paths)} protected path(s) became accessible with credentials.",
+                ))
+                inventory["protected_paths"] = protected_paths
+            else:
+                checks.append(_check(
+                    "info",
+                    "Credentialed web paths",
+                    "No additional protected paths were confirmed with the provided credentials.",
+                ))
+
+            if exposed_paths:
+                inventory["public_paths"] = exposed_paths[:10]
+                checks.append(_check(
+                    "info",
+                    "Public web paths",
+                    f"{len(exposed_paths)} scanned paths were already publicly accessible.",
+                ))
+
+            auth_header = authenticated.headers.get("Server")
+            if auth_header:
+                inventory["server"] = auth_header
+
+            set_cookie = authenticated.headers.get("Set-Cookie")
+            if set_cookie:
+                inventory["cookie_flags"] = set_cookie[:200]
+                checks.append(_check(
+                    "info",
+                    "Session cookie observed",
+                    "Authenticated response returned session cookies.",
+                ))
+
+            if errors:
+                inventory["path_errors"] = errors[:8]
+
             return _base_result(
                 "http_basic",
                 username,
                 "success",
                 "HTTP Basic credentials were accepted.",
-                [
-                    _check(
-                        "success",
-                        "HTTP Basic login",
-                        f"{authenticated.url} returned HTTP {authenticated.status_code}.",
-                    )
-                ],
-                {"authenticated_url": authenticated.url},
+                checks,
+                inventory,
             )
 
         return _base_result(
@@ -214,6 +296,12 @@ def _ssh_scan(target, username, password):
         "kernel": "uname -a",
         "user": "id -un",
         "os": "cat /etc/os-release 2>/dev/null | head -n 3",
+        "hostname": "hostname 2>/dev/null",
+        "uptime": "uptime -p 2>/dev/null",
+        "sudo_rights": "sudo -n -l 2>/dev/null | head -n 20",
+        "listening_services": "ss -tuln 2>/dev/null | head -n 25",
+        "local_users": "cut -d: -f1 /etc/passwd 2>/dev/null | head -n 20",
+        "world_writable": "find /etc /var/www /opt -xdev -type f -perm -0002 2>/dev/null | head -n 20",
     }.items():
         inventory[key] = _run_ssh_command(client, command)
 
@@ -236,6 +324,37 @@ def _ssh_scan(target, username, password):
             "Package update check",
             "No package updates were reported or the package manager was unsupported.",
         ))
+
+    sudo_rights = _non_empty_lines(inventory.get("sudo_rights"), limit=15)
+    if sudo_rights:
+        inventory["sudo_rights"] = sudo_rights
+        checks.append(_check(
+            "info",
+            "Sudo rights discovered",
+            "Sudo privileges are available for this account (review least privilege).",
+        ))
+
+    listening = _non_empty_lines(inventory.get("listening_services"), limit=20)
+    if listening:
+        inventory["listening_services"] = listening
+        checks.append(_check(
+            "info",
+            "Listening services",
+            f"Collected {len(listening)} listening socket entries from the host.",
+        ))
+
+    writable = _non_empty_lines(inventory.get("world_writable"), limit=20)
+    if writable:
+        inventory["world_writable"] = writable
+        checks.append(_check(
+            "failed",
+            "World-writable files detected",
+            f"{len(writable)} world-writable file(s) found in critical directories.",
+        ))
+
+    users = _non_empty_lines(inventory.get("local_users"), limit=20)
+    if users:
+        inventory["local_users"] = users
 
     client.close()
 
