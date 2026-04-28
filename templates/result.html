@@ -1,8 +1,58 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h2>Scan Results{% if target %} for {{ target }}{% endif %}</h2>
+{% if selected_scan and selected_scan.status == "scanning" %}
+    <meta http-equiv="refresh" content="3">
+{% endif %}
 
+<div style="display:grid; grid-template-columns: 300px 1fr; gap:20px; align-items:start;">
+    <aside style="border:1px solid #ddd; border-radius:12px; padding:12px;">
+        <h3 style="margin-top:0;">Saved Scans</h3>
+        {% if scans %}
+            <div style="display:grid; gap:10px;">
+            {% for scan in scans %}
+                <div style="border:1px solid #e5e7eb; border-radius:10px; padding:10px;">
+                    <a href="{{ url_for('result', scan_id=scan.id) }}" style="display:block; text-decoration:none;">
+                        <b>#{{ scan.id }} - {{ scan.target }}</b>
+                        <div style="font-size:0.9rem; color:#666;">
+                            {{ scan.scan_type|upper }} | {{ scan.scan_mode or "n/a" }}
+                        </div>
+                        <div style="font-size:0.85rem; margin-top:4px;">
+                            Status:
+                            {% if scan.status == "scanning" %}
+                                <span style="color:#b26a00;"><b>EN COURS...</b></span>
+                            {% elif scan.status == "done" %}
+                                <span style="color:green;"><b>DONE</b></span>
+                            {% else %}
+                                <span style="color:#b00020;"><b>FAILED</b></span>
+                            {% endif %}
+                        </div>
+                    </a>
+                    <form action="{{ url_for('delete_scan', scan_id=scan.id) }}" method="POST" style="margin-top:8px;">
+                        <button type="submit" style="background:#b00020; color:#fff; border:none; border-radius:8px; padding:6px 10px; cursor:pointer;">
+                            Delete
+                        </button>
+                    </form>
+                </div>
+            {% endfor %}
+            </div>
+        {% else %}
+            <p>No scans yet. Start one from Scan page.</p>
+        {% endif %}
+    </aside>
+
+    <section>
+        <h2>Scan Results{% if target %} for {{ target }}{% endif %}</h2>
+
+        {% if selected_scan and selected_scan.status == "scanning" %}
+            <p style="color:#b26a00; font-weight:600;">Le scan est en cours...</p>
+        {% elif selected_scan and selected_scan.status == "failed" %}
+            <p style="color:#b00020;">Scan failed{% if scan_error %}: {{ scan_error }}{% endif %}</p>
+        {% elif not selected_scan %}
+            <p>No results found.</p>
+        {% endif %}
+
+{% if selected_scan and selected_scan.status == "done" %}
 {% if scan_type == "security" and results is mapping and not results.error %}
     <section class="security-report">
         <div class="report-header">
@@ -416,4 +466,7 @@
 {% else %}
     <p>No results found.</p>
 {% endif %}
+{% endif %}
+    </section>
+</div>
 {% endblock %}

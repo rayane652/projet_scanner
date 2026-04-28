@@ -1,5 +1,96 @@
 {% extends "base.html" %}
 
 {% block content %}
+<section class="sec-dashboard">
+    <div class="dash-head">
+        <div>
+            <p class="dash-kicker">Security Posture</p>
+            <h1>Vulnix Command Center</h1>
+            <p class="dash-sub">Qualys/Tenable style view of scans, exposure, and activity.</p>
+        </div>
+        <a class="dash-btn" href="{{ url_for('scan') }}">+ New Scan</a>
+    </div>
+
+    <div class="dash-kpis">
+        <article class="dash-card">
+            <span>Total Scans</span>
+            <strong>{{ dashboard_data.total_scans }}</strong>
+        </article>
+        <article class="dash-card">
+            <span>Running</span>
+            <strong>{{ dashboard_data.running_scans }}</strong>
+        </article>
+        <article class="dash-card">
+            <span>Completed</span>
+            <strong>{{ dashboard_data.done_scans }}</strong>
+        </article>
+        <article class="dash-card">
+            <span>Failed</span>
+            <strong>{{ dashboard_data.failed_scans }}</strong>
+        </article>
+        <article class="dash-card">
+            <span>Completion Rate</span>
+            <strong>{{ dashboard_data.completion_rate }}%</strong>
+        </article>
+    </div>
+
+    <div class="dash-grid">
+        <article class="dash-panel">
+            <h3>Scan Distribution</h3>
+            <div class="dash-bars">
+                <div>
+                    <label>Security</label>
+                    <b>{{ dashboard_data.scan_type_counts.security }}</b>
+                </div>
+                <div>
+                    <label>Web</label>
+                    <b>{{ dashboard_data.scan_type_counts.web }}</b>
+                </div>
+                <div>
+                    <label>Port</label>
+                    <b>{{ dashboard_data.scan_type_counts.port }}</b>
+                </div>
+                <div>
+                    <label>CVE</label>
+                    <b>{{ dashboard_data.scan_type_counts.cve }}</b>
+                </div>
+            </div>
+        </article>
+
+        <article class="dash-panel">
+            <h3>Risk Snapshot</h3>
+            <div class="risk-pills">
+                <span class="pill critical">Critical {{ dashboard_data.severity_counts.critical }}</span>
+                <span class="pill high">High {{ dashboard_data.severity_counts.high }}</span>
+                <span class="pill medium">Medium {{ dashboard_data.severity_counts.medium }}</span>
+                <span class="pill low">Low {{ dashboard_data.severity_counts.low }}</span>
+            </div>
+            <p class="panel-foot">Risk levels are derived from completed security reports.</p>
+        </article>
+    </div>
+
+    <article class="dash-panel">
+        <div class="panel-title">
+            <h3>Recent Scans</h3>
+            <a href="{{ url_for('result') }}">Open Results</a>
+        </div>
+
+        {% if dashboard_data.recent_scans %}
+            <div class="recent-list">
+                {% for scan in dashboard_data.recent_scans %}
+                    <a href="{{ url_for('result', scan_id=scan.id) }}" class="recent-item">
+                        <div>
+                            <b>#{{ scan.id }} - {{ scan.target }}</b>
+                            <small>{{ scan.scan_type|upper }} | {{ scan.scan_mode or "n/a" }}</small>
+                        </div>
+                        <span class="status {{ scan.status }}">{{ scan.status }}</span>
+                    </a>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-dash">No scans yet. Start your first scan from Scan page.</p>
+        {% endif %}
+    </article>
+</section>
 
 {% endblock %}

@@ -329,6 +329,49 @@ form textarea {
     text-underline-offset: 3px;
 }
 
+.oauth-divider {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    margin: 12px 0;
+}
+
+.oauth-divider::before,
+.oauth-divider::after {
+    background: rgba(255, 255, 255, 0.2);
+    content: "";
+    flex: 1;
+    height: 1px;
+}
+
+.oauth-divider span {
+    color: #cbd5e1;
+    font-size: 13px;
+    text-transform: lowercase;
+}
+
+.google-login-btn {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+    color: #ffffff;
+    display: flex;
+    font-size: 14px;
+    font-weight: 600;
+    gap: 10px;
+    justify-content: center;
+    min-height: 44px;
+    text-decoration: none;
+    transition: 0.2s ease;
+    width: 100%;
+}
+
+.google-login-btn:hover {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
 /* FADE ANIMATION */
 #login-form,
 #signup-form {
