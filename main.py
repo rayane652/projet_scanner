@@ -434,14 +434,25 @@ def delete_scan(scan_id):
         return redirect(url_for("home"))
     ensure_scans_table()
 
+    user_email = session["user"]["email"]
+    
+    # Delete the scan
     conn = get_db_connection()
     conn.execute(
         "DELETE FROM scans WHERE id = ? AND user_email = ?",
-        (scan_id, session["user"]["email"]),
+        (scan_id, user_email),
     )
     conn.commit()
     conn.close()
-    return redirect(url_for("result"))
+
+    # Get remaining scans
+    remaining_scans = fetch_user_scans(user_email)
+    
+    # Redirect to the first scan (most recent) if it exists
+    if remaining_scans:
+        return redirect(url_for("result", scan_id=remaining_scans[0]["id"]))
+    else:
+        return redirect(url_for("result"))
 
 
 # ================= SIGNUP =================
@@ -701,4 +712,3 @@ if __name__ == "__main__":
         debug=os.environ.get("FLASK_DEBUG") == "1",
         request_handler=NoServerHeaderRequestHandler,
     )
-
