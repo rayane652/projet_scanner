@@ -1,0 +1,168 @@
+/* ================= ASSETS PAGE ================= */
+
+.assets-page {
+    display: grid;
+    gap: 16px;
+}
+
+/* GRID */
+.asset-grid {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+/* CARD */
+.asset-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-left: 5px solid #94a3b8;
+    border-radius: 8px;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.07);
+    display: grid;
+    gap: 16px;
+    padding: 18px;
+}
+
+/* TOP */
+.asset-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 12px;
+}
+
+.asset-kicker {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.asset-card h2 {
+    font-size: 20px;
+    margin-top: 4px;
+    word-break: break-word;
+}
+
+.asset-card p {
+    color: #64748b;
+    font-size: 13px;
+    margin-top: 5px;
+}
+
+/* RISK CHIP */
+.risk-chip {
+    border-radius: 999px;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 900;
+    padding: 6px 9px;
+}
+
+/* SCORE */
+.asset-score strong {
+    font-size: 38px;
+    line-height: 1;
+}
+
+.asset-score span {
+    color: #64748b;
+    font-size: 13px;
+    margin-left: 6px;
+}
+
+/* ================= SEVERITY BARS ================= */
+
+.severity-bars {
+    display: grid;
+    gap: 8px;
+}
+
+.severity-bars div {
+    display: grid;
+    grid-template-columns: 70px 24px 1fr;
+    gap: 7px;
+    align-items: center;
+}
+
+.severity-bars span,
+.severity-bars b {
+    font-size: 12px;
+    font-weight: 800;
+    color: #64748b;
+}
+
+.severity-bars i {
+    background: #e7edf4;
+    height: 5px;
+    position: relative;
+    display: block;
+}
+
+.severity-bars i::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: var(--w);
+}
+
+.severity-bars .critical::before { background: #8f1d1d; }
+.severity-bars .high::before { background: #ef4444; }
+.severity-bars .medium::before { background: #f59e0b; }
+.severity-bars .low::before { background: #2563eb; }
+
+/* META */
+.asset-meta {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.asset-meta span {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 12px;
+    padding: 9px;
+    color: #64748b;
+}
+
+.asset-meta b {
+    display: block;
+    font-size: 18px;
+    color: #0f172a;
+}
+
+/* LINK */
+.details-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #2563eb;
+    font-weight: 800;
+    text-decoration: none;
+}
+
+/* EMPTY */
+.empty-wide {
+    display: grid;
+    gap: 10px;
+    justify-items: center;
+    text-align: center;
+    padding: 50px 20px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    color: #64748b;
+}
+
+.empty-wide i {
+    font-size: 38px;
+    color: #94a3b8;
+}
+
+.empty-wide h2 {
+    color: #0f172a;
+}

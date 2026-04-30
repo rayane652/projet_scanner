@@ -1,0 +1,175 @@
+/* ================= SCAN PAGE ================= */
+
+.scan-page {
+    display: grid;
+    gap: 16px;
+}
+
+/* ================= HERO ================= */
+
+.scan-hero {
+    align-items: center;
+    background: linear-gradient(135deg, #0f172a, #164e63 58%, #155e75);
+    border-radius: 8px;
+    color: #ffffff;
+    display: flex;
+    justify-content: space-between;
+    min-height: 210px;
+    overflow: hidden;
+    padding: 30px;
+}
+
+.scan-hero span {
+    color: #93c5fd;
+    font-size: 13px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.scan-hero h1 {
+    font-size: 34px;
+    margin-top: 8px;
+}
+
+.scan-hero p {
+    color: rgba(255, 255, 255, 0.78);
+    margin-top: 8px;
+    max-width: 580px;
+}
+
+/* ICON CIRCLE */
+.scan-orbit {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 50%;
+    display: flex;
+    flex: 0 0 130px;
+    height: 130px;
+    justify-content: center;
+    width: 130px;
+}
+
+.scan-orbit i {
+    font-size: 44px;
+}
+
+/* ================= FORM CONTAINER ================= */
+
+.scan-console {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+    padding: 20px;
+}
+
+/* ================= FORM ================= */
+
+.scan-form {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) 190px 230px auto;
+    gap: 12px;
+    align-items: start;
+}
+
+.scan-form.beautiful {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none;
+}
+
+.scan-form label {
+    display: grid;
+    gap: 8px;
+}
+
+.scan-form label span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+/* INPUTS */
+.scan-input,
+.scan-select,
+.scan-button {
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 14px;
+    min-height: 42px;
+    padding: 9px 12px;
+}
+
+.scan-input,
+.scan-select {
+    background: #ffffff;
+    color: #0f172a;
+}
+
+/* BUTTON */
+.scan-button {
+    background: #7f30cb;
+    border-color: #7f30cb;
+    color: #ffffff;
+    cursor: pointer;
+    font-weight: 700;
+    padding-left: 18px;
+    padding-right: 18px;
+}
+
+.scan-form.beautiful .scan-button {
+    align-self: end;
+    background: #0f172a;
+    border-color: #0f172a;
+    display: inline-flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+/* ================= CREDENTIAL FIELDS ================= */
+
+.credential-fields {
+    display: none;
+    grid-column: 1 / -1;
+    grid-template-columns: 190px minmax(180px, 1fr) minmax(180px, 1fr);
+    gap: 12px;
+}
+
+.credential-fields.beautiful {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* ================= RESPONSIVE ================= */
+
+@media (max-width: 980px) {
+    .scan-form {
+        grid-template-columns: 1fr;
+    }
+
+    .credential-fields {
+        grid-template-columns: 1fr;
+    }
+
+    .scan-input,
+    .scan-select,
+    .scan-button {
+        width: 100%;
+        font-size: 16px;
+    }
+
+    .scan-hero {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 560px) {
+    .scan-hero {
+        padding: 22px;
+    }
+
+    .scan-hero h1 {
+        font-size: 27px;
+    }
+}

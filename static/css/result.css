@@ -1,0 +1,200 @@
+/* ================= RESULTS PAGE ================= */
+
+.results-page {
+    display: grid;
+    gap: 18px;
+    grid-template-columns: 320px minmax(0, 1fr);
+}
+
+/* SIDEBAR */
+.results-sidebar {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px;
+    max-height: calc(100vh - 118px);
+    overflow: auto;
+    position: sticky;
+    top: 94px;
+}
+
+.saved-scan-list {
+    display: grid;
+    gap: 10px;
+}
+
+.saved-scan-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 11px;
+}
+
+.saved-scan-card.selected {
+    border-color: #2f9bff;
+    box-shadow: 0 0 0 3px rgba(47, 155, 255, 0.12);
+}
+
+/* ================= TITLE ================= */
+
+.result-title {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.result-title span {
+    font-size: 12px;
+    font-weight: 900;
+    color: #64748b;
+}
+
+.result-title h2 {
+    font-size: 27px;
+}
+
+.result-title p {
+    color: #64748b;
+}
+
+/* ================= PANELS ================= */
+
+.report-panel {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 18px;
+}
+
+.report-header {
+    display: flex;
+    justify-content: space-between;
+    padding: 22px;
+}
+
+.report-header h3 {
+    font-size: 26px;
+}
+
+/* ================= METRICS ================= */
+
+.metric-grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+}
+
+.metric-card {
+    padding: 18px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.metric-card span {
+    color: #64748b;
+}
+
+.metric-card strong {
+    font-size: 30px;
+}
+
+/* ================= SEVERITY ================= */
+
+.severity-tile {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-radius: 8px;
+    color: white;
+}
+
+.severity-critical { background: #8f1d1d; }
+.severity-high { background: #ef4444; }
+.severity-medium { background: #f59e0b; }
+.severity-low { background: #2563eb; }
+.severity-info { background: #64748b; }
+
+/* ================= FINDINGS ================= */
+
+.findings-table {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.findings-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 1fr 1fr;
+    gap: 14px;
+    padding: 14px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+/* ================= DETAILS ================= */
+
+.scan-detail {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-left: 5px solid #64748b;
+    border-radius: 8px;
+}
+
+.scan-detail summary {
+    padding: 14px;
+    display: grid;
+    grid-template-columns: 92px 1fr auto;
+    gap: 12px;
+    cursor: pointer;
+}
+
+.scan-detail-body {
+    padding: 14px;
+    border-top: 1px solid #e2e8f0;
+}
+
+/* ================= CVE ================= */
+
+.cve-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 5px solid #64748b;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+/* ================= ERROR ================= */
+
+.scan-error-panel {
+    display: grid;
+    grid-template-columns: 52px 1fr;
+    gap: 16px;
+    padding: 20px;
+    border-radius: 8px;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+}
+
+.scan-error-icon {
+    width: 52px;
+    height: 52px;
+    background: #f97316;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    border-radius: 8px;
+}
+
+/* ================= RESPONSIVE ================= */
+
+@media (max-width: 980px) {
+    .results-page {
+        grid-template-columns: 1fr;
+    }
+
+    .results-sidebar {
+        position: static;
+        max-height: none;
+    }
+}

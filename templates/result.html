@@ -4,33 +4,36 @@
 {% if selected_scan and selected_scan.status == "scanning" %}
     <meta http-equiv="refresh" content="3">
 {% endif %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/result.css') }}">
+{% endblock %}
 
-<div style="display:grid; grid-template-columns: 300px 1fr; gap:20px; align-items:start;">
-    <aside style="border:1px solid #ddd; border-radius:12px; padding:12px;">
-        <h3 style="margin-top:0;">Saved Scans</h3>
+<div class="results-page">
+    <aside class="results-sidebar">
+        <h3>Saved Scans</h3>
         {% if scans %}
-            <div style="display:grid; gap:10px;">
+            <div class="saved-scan-list">
             {% for scan in scans %}
-                <div style="border:1px solid #e5e7eb; border-radius:10px; padding:10px;">
-                    <a href="{{ url_for('result', scan_id=scan.id) }}" style="display:block; text-decoration:none;">
-                        <b>#{{ scan.id }} - {{ scan.target }}</b>
-                        <div style="font-size:0.9rem; color:#666;">
-                            {{ scan.scan_type|upper }} | {{ scan.scan_mode or "n/a" }}
+                <div class="saved-scan-card {% if selected_scan and selected_scan.id == scan.id %}selected{% endif %}">
+                    <a href="{{ url_for('result', scan_id=scan.id) }}">
+                        <b>#{{ scan.display_no|default(loop.index) }} - {{ scan.asset_label|default(scan.machine_name or scan.target) }}</b>
+                        <div>
+                            {{ scan.target }} - {{ scan.scan_type|upper }} | {{ scan.scan_mode or "n/a" }}
                         </div>
-                        <div style="font-size:0.85rem; margin-top:4px;">
+                        <div>
                             Status:
                             {% if scan.status == "scanning" %}
-                                <span style="color:#b26a00;"><b>EN COURS...</b></span>
+                                <span class="status-text scanning"><b>SCANNING...</b></span>
                             {% elif scan.status == "done" %}
-                                <span style="color:green;"><b>DONE</b></span>
+                                <span class="status-text done"><b>DONE</b></span>
                             {% else %}
-                                <span style="color:#b00020;"><b>FAILED</b></span>
+                                <span class="status-text failed"><b>FAILED</b></span>
                             {% endif %}
                         </div>
                     </a>
-                    <form action="{{ url_for('delete_scan', scan_id=scan.id) }}" method="POST" style="margin-top:8px;">
-                        <button type="submit" style="background:#b00020; color:#fff; border:none; border-radius:8px; padding:6px 10px; cursor:pointer;">
-                            Delete
+                    <form action="{{ url_for('delete_scan', scan_id=scan.id) }}" method="POST">
+                        <button type="submit">
+                            <i class="fas fa-trash"></i> Delete
                         </button>
                     </form>
                 </div>
@@ -41,19 +44,48 @@
         {% endif %}
     </aside>
 
-    <section>
-        <h2>Scan Results{% if target %} for {{ target }}{% endif %}</h2>
+    <section class="results-main">
+        <div class="result-title">
+            <div>
+                <span>Scan Results{% if selected_scan %} #{{ selected_scan.display_no|default('') }}{% endif %}</span>
+                <h2>{% if selected_scan %}{{ selected_scan.asset_label|default(selected_scan.machine_name or selected_scan.target) }}{% elif target %}{{ target }}{% else %}Results{% endif %}</h2>
+                {% if target %}<p>{{ target }}</p>{% endif %}
+            </div>
+            {% if selected_scan %}
+                <a class="primary-action" href="{{ url_for('scan') }}"><i class="fas fa-plus"></i> New Scan</a>
+            {% endif %}
+        </div>
 
         {% if selected_scan and selected_scan.status == "scanning" %}
-            <p style="color:#b26a00; font-weight:600;">Le scan est en cours...</p>
+            <p class="scan-state scanning">Scan is running...</p>
         {% elif selected_scan and selected_scan.status == "failed" %}
-            <p style="color:#b00020;">Scan failed{% if scan_error %}: {{ scan_error }}{% endif %}</p>
+            <p class="scan-state failed">Scan failed{% if scan_error %}: {{ scan_error }}{% endif %}</p>
         {% elif not selected_scan %}
-            <p>No results found.</p>
+            <p class="empty-copy">No results found.</p>
         {% endif %}
 
 {% if selected_scan and selected_scan.status == "done" %}
-{% if scan_type == "security" and results is mapping and not results.error %}
+{% if scan_type == "security" and results is mapping and not results.error and results.summary.open_ports == 0 and results.summary.scanned_items == 0 and results.raw.web.error %}
+    <section class="scan-error-panel">
+        <div class="scan-error-icon">
+            <i class="fas fa-triangle-exclamation"></i>
+        </div>
+        <div>
+            <span>Target Unreachable</span>
+            <h3>{{ target }}</h3>
+            <p>Vulnix could not connect to this target as a website and did not find any open ports in the scanned range.</p>
+
+            {% if results.raw.web.errors %}
+                <div class="error-detail-list">
+                    {% for error in results.raw.web.errors %}
+                        <code>{{ error }}</code>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </section>
+
+{% elif scan_type == "security" and results is mapping and not results.error %}
     <section class="security-report">
         <div class="report-header">
             <div>
@@ -416,7 +448,25 @@
     </div>
 
 {% elif results is mapping and results.error %}
-    <p style="color:#b00020;">{{ results.error }}</p>
+    <section class="scan-error-panel">
+        <div class="scan-error-icon">
+            <i class="fas fa-triangle-exclamation"></i>
+        </div>
+        <div>
+            <span>Scan Error</span>
+            <h3>{{ results.error }}</h3>
+            {% if results.message %}
+                <p>{{ results.message }}</p>
+            {% endif %}
+            {% if results.details %}
+                <div class="error-detail-list">
+                    {% for detail in results.details %}
+                        <code>{{ detail }}</code>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </section>
 
 {% elif scan_type == "cve" %}
     {% if results %}
@@ -434,7 +484,16 @@
     {% endif %}
 
 {% elif scan_type == "port" and results == [] %}
-    <p style="color:green;">No open ports found on the scanned ports.</p>
+    <section class="scan-error-panel warning">
+        <div class="scan-error-icon">
+            <i class="fas fa-circle-info"></i>
+        </div>
+        <div>
+            <span>No Reachable Ports</span>
+            <h3>{{ target }}</h3>
+            <p>No open ports were found in the scanned range.</p>
+        </div>
+    </section>
 
 {% elif results %}
     {% for r in results %}

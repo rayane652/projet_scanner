@@ -1,5 +1,170 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/asset.css') }}">
+{% endblock %}
+<div class="assets-page">
+    <div class="page-title">
+        <div>
+            <h1>Assets</h1>
+            <p>Every named machine you scan is tracked here with its latest exposure.</p>
+        </div>
+        <a class="primary-action" href="{{ url_for('scan') }}"><i class="fas fa-plus"></i> Add Asset</a>
+    </div>
 
+    <section class="asset-grid" id="assetGrid">
+        {% if assets %}
+        {% for asset in assets %}
+            <article class="asset-card severity-border-{{ asset.risk_level|lower }}">
+                <div class="asset-top">
+                    <div>
+                        <span class="asset-kicker">{{ asset.latest_scan_type|upper }}</span>
+                        <h2>{{ asset.name }}</h2>
+                        <p>{{ asset.target }}</p>
+                    </div>
+                    <span class="risk-chip severity-{{ asset.risk_level|lower }}">{{ asset.risk_level }}</span>
+                </div>
+
+                <div class="asset-score">
+                    <strong>{{ asset.risk_score }}</strong>
+                    <span>/100 risk score</span>
+                </div>
+
+                <div class="severity-bars">
+                    <div><span>Critical</span><b>{{ asset.severity_counts.critical }}</b><i class="critical" style="--w:{{ asset.severity_counts.critical * 16 }}%"></i></div>
+                    <div><span>High</span><b>{{ asset.severity_counts.high }}</b><i class="high" style="--w:{{ asset.severity_counts.high * 16 }}%"></i></div>
+                    <div><span>Medium</span><b>{{ asset.severity_counts.medium }}</b><i class="medium" style="--w:{{ asset.severity_counts.medium * 16 }}%"></i></div>
+                    <div><span>Low</span><b>{{ asset.severity_counts.low }}</b><i class="low" style="--w:{{ asset.severity_counts.low * 16 }}%"></i></div>
+                </div>
+
+                <div class="asset-meta">
+                    <span><b>{{ asset.scan_count }}</b> scan(s)</span>
+                    <span><b>{{ asset.findings }}</b> finding(s)</span>
+                    <span><b>{{ asset.open_ports }}</b> port(s)</span>
+                </div>
+
+                <a class="details-link" href="{{ url_for('result', scan_id=asset.latest_scan_id) }}">
+                    Details <i class="fas fa-arrow-right"></i>
+                </a>
+            </article>
+        {% endfor %}
+        {% elif scans %}
+        {% for scan in scans %}
+            <article class="asset-card severity-border-info">
+                <div class="asset-top">
+                    <div>
+                        <span class="asset-kicker">{{ scan.scan_type|upper }}</span>
+                        <h2>{{ scan.asset_label|default(scan.machine_name or scan.target) }}</h2>
+                        <p>{{ scan.target }}</p>
+                    </div>
+                    <span class="risk-chip severity-info">{{ scan.status|upper }}</span>
+                </div>
+
+                <div class="asset-score">
+                    <strong>0</strong>
+                    <span>/100 risk score</span>
+                </div>
+
+                <div class="severity-bars">
+                    <div><span>Critical</span><b>0</b><i class="critical" style="--w:0%"></i></div>
+                    <div><span>High</span><b>0</b><i class="high" style="--w:0%"></i></div>
+                    <div><span>Medium</span><b>0</b><i class="medium" style="--w:0%"></i></div>
+                    <div><span>Low</span><b>0</b><i class="low" style="--w:0%"></i></div>
+                </div>
+
+                <div class="asset-meta">
+                    <span><b>1</b> scan</span>
+                    <span><b>{{ scan.status|upper }}</b> status</span>
+                    <span><b>#{{ scan.display_no|default(loop.index) }}</b> result</span>
+                </div>
+
+                <a class="details-link" href="{{ url_for('result', scan_id=scan.id) }}">
+                    Details <i class="fas fa-arrow-right"></i>
+                </a>
+            </article>
+        {% endfor %}
+        {% else %}
+            <div class="empty-wide">
+                <i class="fas fa-server"></i>
+                <h2>No assets yet</h2>
+                <p>Give your next scan a machine name and it will appear here automatically.</p>
+                <a class="primary-action" href="{{ url_for('scan') }}">Start Scan</a>
+            </div>
+        {% endif %}
+    </section>
+</div>
+
+<script>
+(async function hydrateAssetsFromResults() {
+    const grid = document.getElementById("assetGrid");
+    if (!grid || grid.querySelector(".asset-card")) return;
+
+    try {
+        const response = await fetch("{{ url_for('result') }}", { credentials: "same-origin" });
+        const html = await response.text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const cards = Array.from(doc.querySelectorAll(".saved-scan-card"));
+
+        if (!cards.length) return;
+
+        grid.innerHTML = "";
+        const seen = new Set();
+
+        cards.forEach((card, index) => {
+            const link = card.querySelector("a");
+            const title = (link?.querySelector("b")?.textContent || "").replace(/^#\s*\d*\s*-\s*/, "").trim();
+            const meta = link?.querySelectorAll("div")[0]?.textContent || "";
+            const target = meta.split(" - ")[0].trim();
+            const status = (link?.querySelectorAll("div")[1]?.textContent || "DONE").replace("Status:", "").trim();
+            const name = title || target || `Machine ${index + 1}`;
+            const key = `${name}|${target}`;
+
+            if (seen.has(key)) return;
+            seen.add(key);
+
+            const article = document.createElement("article");
+            article.className = "asset-card severity-border-info";
+            article.innerHTML = `
+                <div class="asset-top">
+                    <div>
+                        <span class="asset-kicker">SCAN</span>
+                        <h2></h2>
+                        <p></p>
+                    </div>
+                    <span class="risk-chip severity-info"></span>
+                </div>
+                <div class="asset-score">
+                    <strong>0</strong>
+                    <span>/100 risk score</span>
+                </div>
+                <div class="severity-bars">
+                    <div><span>Critical</span><b>0</b><i class="critical" style="--w:0%"></i></div>
+                    <div><span>High</span><b>0</b><i class="high" style="--w:0%"></i></div>
+                    <div><span>Medium</span><b>0</b><i class="medium" style="--w:0%"></i></div>
+                    <div><span>Low</span><b>0</b><i class="low" style="--w:0%"></i></div>
+                </div>
+                <div class="asset-meta">
+                    <span><b>1</b> scan</span>
+                    <span><b></b> status</span>
+                    <span><b>#${index + 1}</b> result</span>
+                </div>
+                <a class="details-link">
+                    Details <i class="fas fa-arrow-right"></i>
+                </a>
+            `;
+
+            article.querySelector("h2").textContent = name;
+            article.querySelector("p").textContent = target;
+            article.querySelector(".risk-chip").textContent = status || "DONE";
+            article.querySelectorAll(".asset-meta b")[1].textContent = status || "DONE";
+            const details = article.querySelector(".details-link");
+            details.href = link?.getAttribute("href") || "{{ url_for('result') }}";
+            grid.appendChild(article);
+        });
+    } catch (error) {
+        console.warn("Could not hydrate assets from results", error);
+    }
+})();
+</script>
 {% endblock %}

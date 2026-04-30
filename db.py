@@ -29,6 +29,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS scans (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_email TEXT NOT NULL,
+        machine_name TEXT,
         target TEXT NOT NULL,
         scan_type TEXT NOT NULL,
         scan_mode TEXT,
@@ -39,6 +40,10 @@ def init_db():
         completed_at TEXT
     )
     """)
+
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(scans)").fetchall()}
+    if "machine_name" not in columns:
+        cursor.execute("ALTER TABLE scans ADD COLUMN machine_name TEXT")
 
     conn.commit()
     conn.close()

@@ -1,59 +1,90 @@
 {% extends "base.html" %}
 
 {% block content %}
-
-<div class="scan-form-wrap">
-
-    <form class="scan-form" action="/run_scan" method="POST">
-
-        <input type="text" name="target" placeholder="IP, domain, or URL" required
-               class="scan-input">
-
-        <select name="type" id="scan-type" class="scan-select">
-            <option value="security">Security Scan</option>
-            <option value="web">Web Scan</option>
-            <option value="cve">CVE Search</option>
-        </select>
-
-        <select name="scan_mode" id="scan-mode" class="scan-select">
-            <option value="unauthenticated">Non-authenticated Scan</option>
-            <option value="authenticated">Authenticated Scan</option>
-        </select>
-
-        <div id="credential-fields" class="credential-fields">
-            <select name="auth_type" class="scan-select">
-                <option value="http_basic">HTTP Basic</option>
-                <option value="ssh">SSH</option>
-            </select>
-
-            <input type="text" name="auth_username" placeholder="Username"
-                   autocomplete="username" class="scan-input">
-
-            <input type="password" name="auth_password" placeholder="Password"
-                   autocomplete="current-password" class="scan-input">
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/scan.css') }}">
+{% endblock %}
+<div class="scan-page">
+    <section class="scan-hero">
+        <div>
+            <span>Scanner</span>
+            <h1>Launch a focused machine scan</h1>
+            <p>Name the machine, choose the scan depth, and Vulnix will keep the asset history for you.</p>
         </div>
+        <div class="scan-orbit">
+            <i class="fas fa-shield-halved"></i>
+        </div>
+    </section>
 
-        <button type="submit" class="scan-button">
-            Start Scan
-        </button>
+    <section class="scan-console">
+        <form class="scan-form beautiful" action="/run_scan" method="POST">
+            <label>
+                <span>Machine Name</span>
+                <input type="text" name="machine_name" placeholder="Production API, Kali VM, Office router" class="scan-input">
+            </label>
 
-    </form>
+            <label>
+                <span>Target</span>
+                <input type="text" name="target" placeholder="IP, domain, or URL" required class="scan-input">
+            </label>
 
+            <label>
+                <span>Scan Type</span>
+                <select name="type" id="scan-type" class="scan-select">
+                    <option value="security">Security Scan</option>
+                    <option value="web">Web Scan</option>
+                    <option value="cve">CVE Search</option>
+                </select>
+            </label>
+
+            <label>
+                <span>Access Mode</span>
+                <select name="scan_mode" id="scan-mode" class="scan-select">
+                    <option value="unauthenticated">Non-authenticated Scan</option>
+                    <option value="authenticated">Authenticated Scan</option>
+                </select>
+            </label>
+
+            <div id="credential-fields" class="credential-fields beautiful">
+                <label>
+                    <span>Credential Type</span>
+                    <select name="auth_type" class="scan-select">
+                        <option value="http_basic">HTTP Basic</option>
+                        <option value="ssh">SSH</option>
+                    </select>
+                </label>
+
+                <label>
+                    <span>Username</span>
+                    <input type="text" name="auth_username" placeholder="Username" autocomplete="username" class="scan-input">
+                </label>
+
+                <label>
+                    <span>Password</span>
+                    <input type="password" name="auth_password" placeholder="Password" autocomplete="current-password" class="scan-input">
+                </label>
+            </div>
+
+            <button type="submit" class="scan-button">
+                <i class="fas fa-play"></i>
+                Start Scan
+            </button>
+        </form>
+    </section>
 </div>
 
 <script>
-    const scanType = document.getElementById("scan-type");
-    const scanMode = document.getElementById("scan-mode");
-    const credentialFields = document.getElementById("credential-fields");
+const scanType = document.getElementById("scan-type");
+const scanMode = document.getElementById("scan-mode");
+const credentialFields = document.getElementById("credential-fields");
 
-    function updateCredentialFields() {
-        const canAuthenticate = scanType.value === "security" && scanMode.value === "authenticated";
-        credentialFields.style.display = canAuthenticate ? "grid" : "none";
-    }
+function updateCredentialFields() {
+    const canAuthenticate = scanType.value === "security" && scanMode.value === "authenticated";
+    credentialFields.style.display = canAuthenticate ? "grid" : "none";
+}
 
-    scanType.addEventListener("change", updateCredentialFields);
-    scanMode.addEventListener("change", updateCredentialFields);
-    updateCredentialFields();
+scanType.addEventListener("change", updateCredentialFields);
+scanMode.addEventListener("change", updateCredentialFields);
+updateCredentialFields();
 </script>
-
 {% endblock %}

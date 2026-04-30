@@ -1,0 +1,69 @@
+.dashboard {
+    display: grid;
+    gap: 20px;
+}
+
+/* 🔥 WELCOME */
+.welcome {
+    padding: 25px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #0f172a, #1e3a8a);
+    color: white;
+}
+
+.welcome h1 {
+    font-size: 24px;
+}
+
+/* 🔥 CARDS */
+.cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+
+.card {
+    padding: 20px;
+    border-radius: 10px;
+    color: white;
+}
+
+.card strong {
+    font-size: 28px;
+}
+
+.card.critical { background: #7f1d1d; }
+.card.high { background: #ef4444; }
+.card.medium { background: #f59e0b; }
+.card.low { background: #3b82f6; }
+
+/* 🔥 PANELS */
+.panel {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+}
+
+/* 🔥 CHARTS */
+.charts {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+}
+
+/* 🔥 TABLE */
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+td, th {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+/* 🔥 RISK COLORS */
+.risk.critical { color: #7f1d1d; }
+.risk.high { color: #ef4444; }
+.risk.medium { color: #f59e0b; }
+.risk.low { color: #3b82f6; }

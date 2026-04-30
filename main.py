@@ -76,11 +76,13 @@ def get_db_connection():
 
 def ensure_scans_table():
     conn = get_db_connection()
-    conn.execute(
+    cursor = conn.cursor()
+    cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS scans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_email TEXT NOT NULL,
+            machine_name TEXT,
             target TEXT NOT NULL,
             scan_type TEXT NOT NULL,
             scan_mode TEXT,
@@ -92,6 +94,12 @@ def ensure_scans_table():
         )
         """
     )
+    columns = {
+        row[1]
+        for row in cursor.execute("PRAGMA table_info(scans)").fetchall()
+    }
+    if "machine_name" not in columns:
+        cursor.execute("ALTER TABLE scans ADD COLUMN machine_name TEXT")
     conn.commit()
     conn.close()
 
@@ -139,11 +147,27 @@ def execute_scan(scan_type, scan_mode, target, form_data):
     if scan_type == "security":
         ip = resolve_host(target)
         if not ip:
-            return {"error": "Invalid target"}
+            return {
+                "error": "Invalid target",
+                "target": target,
+                "message": "Vulnix could not resolve this target to an IP address.",
+            }
 
         port_results = run_vuln_scan(ip)
         web_result = scan_website(target)
         auth_result = None
+
+        if not port_results and web_result and web_result.get("error"):
+            return {
+                "error": "Target unreachable or no exposed services detected",
+                "target": target,
+                "resolved_ip": ip,
+                "message": (
+                    "Vulnix could not connect to the target as a website and did not "
+                    "find any open ports in the scanned range."
+                ),
+                "details": web_result.get("errors") or [],
+            }
 
         if scan_mode == "authenticated":
             auth_result = run_authenticated_checks(
@@ -164,8 +188,20 @@ def execute_scan(scan_type, scan_mode, target, form_data):
     if scan_type == "port":
         ip = resolve_host(target)
         if not ip:
-            return {"error": "Invalid target"}
-        return run_vuln_scan(ip)
+            return {
+                "error": "Invalid target",
+                "target": target,
+                "message": "Vulnix could not resolve this target to an IP address.",
+            }
+        port_results = run_vuln_scan(ip)
+        if not port_results:
+            return {
+                "error": "No reachable ports detected",
+                "target": target,
+                "resolved_ip": ip,
+                "message": "No open ports were found in the scanned range.",
+            }
+        return port_results
 
     if scan_type == "web":
         return scan_website(target)
@@ -208,15 +244,19 @@ def fetch_user_scans(user_email):
     conn = get_db_connection()
     rows = conn.execute(
         """
-        SELECT id, target, scan_type, scan_mode, status, created_at, completed_at
+        SELECT id, machine_name, target, scan_type, scan_mode, status, created_at, completed_at
         FROM scans
         WHERE user_email = ?
-        ORDER BY id DESC
+        ORDER BY created_at DESC, id DESC
         """,
         (user_email,),
     ).fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    scans = [dict(row) for row in rows]
+    for display_no, scan in enumerate(scans, start=1):
+        scan["display_no"] = display_no
+        scan["asset_label"] = scan.get("machine_name") or scan.get("target")
+    return scans
 
 
 def fetch_scan(scan_id, user_email):
@@ -226,22 +266,151 @@ def fetch_scan(scan_id, user_email):
         (scan_id, user_email),
     ).fetchone()
     conn.close()
-    return dict(row) if row else None
+    if not row:
+        return None
+
+    scan = dict(row)
+    display_no = 1
+    for index, listed_scan in enumerate(fetch_user_scans(user_email), start=1):
+        if listed_scan["id"] == scan["id"]:
+            display_no = index
+            break
+    scan["display_no"] = display_no
+    scan["asset_label"] = scan.get("machine_name") or scan.get("target")
+    return scan
 
 
+def _empty_severity_counts():
+    return {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "info": 0,
+    }
+
+
+def summarize_scan_payload(payload):
+    summary = {
+        "risk_level": "INFO",
+        "risk_score": 0,
+        "severity_counts": _empty_severity_counts(),
+        "findings": 0,
+        "open_ports": 0,
+        "vulnerabilities": 0,
+    }
+
+    if isinstance(payload, list):
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            for cve in item.get("cves") or [item]:
+                severity = str(cve.get("severity") or "").lower()
+                if severity in summary["severity_counts"]:
+                    summary["severity_counts"][severity] += 1
+        summary["findings"] = sum(summary["severity_counts"].values())
+        summary["vulnerabilities"] = summary["findings"]
+        summary["open_ports"] = len([item for item in payload if isinstance(item, dict) and item.get("port")])
+    elif not isinstance(payload, dict) or payload.get("error"):
+        return summary
+    else:
+        counts = payload.get("severity_counts") or {}
+        for key in summary["severity_counts"]:
+            summary["severity_counts"][key] = int(counts.get(key, 0) or 0)
+
+        for finding in payload.get("findings") or []:
+            severity = str(finding.get("severity") or "").lower()
+            if severity in summary["severity_counts"] and not counts:
+                summary["severity_counts"][severity] += 1
+
+        if payload.get("risk_level"):
+            summary["risk_level"] = str(payload.get("risk_level")).upper()
+
+        summary["risk_score"] = int(payload.get("risk_score") or 0)
+        payload_summary = payload.get("summary") or {}
+        summary["findings"] = int(
+            payload_summary.get("findings")
+            or payload_summary.get("scanned_items")
+            or sum(summary["severity_counts"].values())
+        )
+        summary["open_ports"] = int(payload_summary.get("open_ports") or 0)
+        summary["vulnerabilities"] = int(
+            payload_summary.get("vulnerabilities")
+            or sum(summary["severity_counts"].values())
+        )
+
+    if summary["severity_counts"]["critical"]:
+        summary["risk_level"] = "CRITICAL"
+    elif summary["severity_counts"]["high"]:
+        summary["risk_level"] = "HIGH"
+    elif summary["severity_counts"]["medium"]:
+        summary["risk_level"] = "MEDIUM"
+    elif summary["severity_counts"]["low"]:
+        summary["risk_level"] = "LOW"
+
+    if not summary["risk_score"]:
+        summary["risk_score"] = min(
+            100,
+            summary["severity_counts"]["critical"] * 25
+            + summary["severity_counts"]["high"] * 16
+            + summary["severity_counts"]["medium"] * 8
+            + summary["severity_counts"]["low"] * 3
+        )
+    return summary
+
+
+def fetch_user_assets(user_email):
+    scans = fetch_user_scans(user_email)
+    assets_by_key = {}
+
+    for scan in scans:
+        key = (scan.get("machine_name") or scan.get("target") or "").strip().lower(), scan.get("target")
+        asset = assets_by_key.setdefault(key, {
+            "name": scan.get("machine_name") or scan.get("target") or "Unnamed machine",
+            "target": scan.get("target"),
+            "scan_count": 0,
+            "latest_scan_id": scan.get("id"),
+            "latest_status": scan.get("status"),
+            "latest_scan_type": scan.get("scan_type"),
+            "last_seen": scan.get("created_at"),
+            "risk_level": "INFO",
+            "risk_score": 0,
+            "severity_counts": _empty_severity_counts(),
+            "findings": 0,
+            "open_ports": 0,
+            "vulnerabilities": 0,
+        })
+        asset["scan_count"] += 1
+
+        if asset["scan_count"] == 1:
+            asset["latest_scan_id"] = scan.get("id")
+            asset["latest_status"] = scan.get("status")
+            asset["latest_scan_type"] = scan.get("scan_type")
+            asset["last_seen"] = scan.get("created_at")
+
+        full_scan = fetch_scan(scan["id"], user_email)
+        if not full_scan or not full_scan.get("result_json"):
+            continue
+        try:
+            payload = json.loads(full_scan["result_json"])
+        except json.JSONDecodeError:
+            continue
+        asset.update(summarize_scan_payload(payload))
+
+    return sorted(
+        assets_by_key.values(),
+        key=lambda item: (item.get("last_seen") or ""),
+        reverse=True,
+    )
 def build_dashboard_data(user_email):
     scans = fetch_user_scans(user_email)
+    assets = fetch_user_assets(user_email)
+
     total_scans = len(scans)
     running_scans = sum(1 for scan in scans if scan["status"] == "scanning")
     failed_scans = sum(1 for scan in scans if scan["status"] == "failed")
     done_scans = sum(1 for scan in scans if scan["status"] == "done")
 
-    scan_type_counts = {
-        "security": 0,
-        "web": 0,
-        "port": 0,
-        "cve": 0,
-    }
     severity_counts = {
         "critical": 0,
         "high": 0,
@@ -249,11 +418,10 @@ def build_dashboard_data(user_email):
         "low": 0,
     }
 
-    for scan in scans:
-        scan_type = (scan.get("scan_type") or "").lower()
-        if scan_type in scan_type_counts:
-            scan_type_counts[scan_type] += 1
+    total_vulns = 0
+    fixed_vulns = 0
 
+    for scan in scans:
         if scan["status"] != "done":
             continue
 
@@ -263,19 +431,22 @@ def build_dashboard_data(user_email):
 
         try:
             payload = json.loads(full_scan["result_json"])
-        except json.JSONDecodeError:
+        except:
             continue
 
-        if not isinstance(payload, dict):
-            continue
+        summary = summarize_scan_payload(payload)
 
-        risk_level = (payload.get("risk_level") or "").lower()
-        if risk_level in severity_counts:
-            severity_counts[risk_level] += 1
+        for key in severity_counts:
+            severity_counts[key] += summary["severity_counts"][key]
 
-    completion_rate = 0
-    if total_scans:
-        completion_rate = int((done_scans / total_scans) * 100)
+        total_vulns += summary["vulnerabilities"]
+
+    # 🔥 FIXED LOGIC (simple but realistic)
+    # assume vulnerabilities decrease over time per asset
+    previous_total = sum(a.get("vulnerabilities", 0) for a in assets)
+    fixed_vulns = max(0, previous_total - total_vulns)
+
+    completion_rate = int((done_scans / total_scans) * 100) if total_scans else 0
 
     return {
         "total_scans": total_scans,
@@ -283,11 +454,15 @@ def build_dashboard_data(user_email):
         "failed_scans": failed_scans,
         "done_scans": done_scans,
         "completion_rate": completion_rate,
-        "scan_type_counts": scan_type_counts,
         "severity_counts": severity_counts,
         "recent_scans": scans[:8],
-    }
+        "assets": assets,
+        "total_assets": len(assets),
 
+        # 🔥 NEW DATA
+        "total_vulns": total_vulns,
+        "fixed_vulns": fixed_vulns,
+    }
 
 ensure_scans_table()
 ensure_users_schema()
@@ -338,6 +513,12 @@ def run_scan():
     scan_type = request.form.get("type")
     scan_mode = request.form.get("scan_mode", "unauthenticated")
     target = request.form.get("target")
+    machine_name = (
+        request.form.get("machine_name")
+        or request.form.get("asset_name")
+        or request.form.get("name")
+        or ""
+    ).strip()
     form_data = {
         "auth_type": request.form.get("auth_type"),
         "auth_username": request.form.get("auth_username"),
@@ -348,11 +529,12 @@ def run_scan():
     cursor = conn.cursor()
     cursor.execute(
         """
-        INSERT INTO scans (user_email, target, scan_type, scan_mode, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO scans (user_email, machine_name, target, scan_type, scan_mode, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session["user"]["email"],
+            machine_name or target,
             target,
             scan_type,
             scan_mode,
@@ -380,10 +562,16 @@ def asset():
     if "user" not in session:
         return redirect(url_for("home"))
 
+    ensure_scans_table()
+    user_email = session["user"]["email"]
+    scans = fetch_user_scans(user_email)
+    assets = fetch_user_assets(user_email)
     return render_template(
         "asset.html",
         user=session["user"],
-        active="asset"
+        active="asset",
+        assets=assets,
+        scans=scans,
     )
 
 
@@ -442,6 +630,9 @@ def delete_scan(scan_id):
         "DELETE FROM scans WHERE id = ? AND user_email = ?",
         (scan_id, user_email),
     )
+    any_scans = conn.execute("SELECT COUNT(*) FROM scans").fetchone()[0]
+    if any_scans == 0:
+        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'scans'")
     conn.commit()
     conn.close()
 
@@ -549,8 +740,33 @@ def login():
             show_login=True
         )
 
+@app.route("/update-name", methods=["POST"])
+def update_name():
+    if "user" not in session:
+        return {"status": "error"}, 401
 
-@app.route("/auth/google")
+    data = request.get_json()
+    new_name = data.get("name", "").strip()
+
+    if not new_name:
+        return {"status": "error"}, 400
+
+    # 🔥 update DB
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET name=? WHERE email=?",
+        (new_name, session["user"]["email"])
+    )
+    conn.commit()
+    conn.close()
+
+    # 🔥 update session (IMPORTANT)
+    session["user"]["name"] = new_name
+
+    return {"status": "success"}
+
+
 def google_auth():
     ensure_users_schema()
     client_id, client_secret, redirect_uri = get_google_oauth_config()

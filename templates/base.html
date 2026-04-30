@@ -6,68 +6,19 @@
     <title>Vulnix</title>
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    {% block extra_css %}{% endblock %}
+
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/icon.png') }}">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
 </head>
 
 <body>
 
-<!-- TOPBAR -->
-<div class="topbar">
-
-    <div class="left">
-       
-        <div class="logo">
-            <img src="{{ url_for('static', filename='images/logo.png') }}">
-        </div>
-
-        <div class="search-box">
-            <input type="text" placeholder="Search...">
-            <i class="fas fa-search"></i>
-        </div>
-    </div>
-
-    <div class="right">
-
-        <img src="{{ url_for('static', filename='images/setting.png') }}" class="nav-icon">
-
-        <div class="profile-container">
-
-            <img src="{{ url_for('static', filename='images/user.png') }}"
-                 class="profile-img"
-                 onclick="toggleProfile()">
-
-            <div class="profile-dropdown" id="profileBox">
-
-                <div class="profile-header">
-                    <img src="{{ url_for('static', filename='images/user.png') }}" class="profile-avatar">
-
-                    <div>
-                        <p class="profile-name">{{ user.name }}</p>
-                        <p class="profile-email">{{ user.email }}</p>
-                    </div>
-                </div>
-
-                <div class="profile-divider"></div>
-
-                <a href="/logout" class="logout-btn">
-                    <img src="{{ url_for('static', filename='images/logout.png') }}">
-                    Logout
-                </a>
-
-            </div>
-
-        </div>
-         <a href="/logout">
-        <img src="{{ url_for('static', filename='images/logout.png') }}" class="nav-icon">
-    </a>
-    </div>
-
-</div>
-
-
 <!-- SIDEBAR -->
 <div class="sidebar">
+    <div class="sidebar-logo">
+        <img src="{{ url_for('static', filename='images/logo.png') }}">
+    </div>
 
     <a href="/dashboard" class="side-item {% if active=='dashboard' %}active{% endif %}">
         <i class="fas fa-chart-line"></i>
@@ -88,7 +39,77 @@
         <i class="fas fa-file-alt"></i>
         <span>Results</span>
     </a>
+</div>
 
+
+<!-- TOPBAR -->
+<div class="topbar">
+
+    <div class="left">
+        <div class="page-indicator">
+            <span><b>{{ active|capitalize }}</b></span>
+        </div>
+    </div>
+
+    <div class="right">
+
+        <div class="search-box">
+            <input type="text" placeholder="Search...">
+            <i class="fas fa-search"></i>
+        </div>
+
+        <!-- PROFILE -->
+        <div class="profile-container">
+
+            <!-- trigger -->
+            <div class="profile-trigger" onclick="toggleProfile()">
+                <img src="{{ url_for('static', filename='images/user.png') }}" class="profile-img">
+
+                <!-- 🔥 THIS IS THE IMPORTANT PART -->
+                <span class="profile-name-top" id="topName">
+                    {{ user.name.title() }}
+                </span>
+
+                <i class="fas fa-chevron-down profile-arrow"></i>
+            </div>
+
+            <!-- dropdown -->
+            <div class="profile-dropdown" id="profileBox">
+
+                <div class="profile-header">
+                    <img src="{{ url_for('static', filename='images/user.png') }}" class="profile-avatar">
+
+                    <div class="profile-text">
+
+                        <div class="name-row">
+                            <input type="text"
+                                   id="nameInput"
+                                   class="edit-input"
+                                   value="{{ user.name.title() }}"
+                                   style="display:none;" />
+
+                            <p id="nameText" class="profile-name">
+                                {{ user.name.title() }}
+                            </p>
+
+                            <i class="fas fa-pen edit-name" onclick="enableEdit(event)"></i>
+                        </div>
+
+                        <p class="profile-email">{{ user.email }}</p>
+                    </div>
+                </div>
+
+                <div class="profile-divider"></div>
+
+                <a href="/logout" class="logout-btn">
+                    <i class="fas fa-sign-out-alt"></i>
+                    Logout
+                </a>
+
+            </div>
+        </div>
+
+    </div>
 </div>
 
 

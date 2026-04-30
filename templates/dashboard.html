@@ -1,762 +1,120 @@
 {% extends "base.html" %}
-
 {% block content %}
-<style>
-  :root {
-    --navy: #1a3a5c;
-    --navy-dark: #0f2540;
-    --navy-mid: #1e4976;
-    --accent: #e8411a;
-    --accent2: #2196c4;
-    --accent3: #f5a623;
-    --green: #27ae60;
-    --gray-bg: #f0f2f5;
-    --gray-border: #dde1e7;
-    --gray-text: #5a6474;
-    --white: #ffffff;
-    --text: #1c2a3a;
-    --font: 'IBM Plex Sans', sans-serif;
-    --mono: 'IBM Plex Mono', monospace;
-  }
-
-  .dashboard-container {
-    padding: 24px;
-    background: var(--gray-bg);
-    min-height: calc(100vh - 120px);
-  }
-
-  /* ── HEADER ── */
-  .dashboard-header {
-    margin-bottom: 28px;
-  }
-
-  .dashboard-header h1 {
-    font-size: 32px;
-    font-weight: 700;
-    color: var(--navy-dark);
-    margin-bottom: 4px;
-  }
-
-  .dashboard-header p {
-    color: var(--gray-text);
-    font-size: 14px;
-  }
-
-  /* ── STAT CARDS ── */
-  .stats-row {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 16px;
-    margin-bottom: 28px;
-  }
-
-  .stat-card {
-    background: var(--white);
-    border: 1px solid var(--gray-border);
-    border-radius: 8px;
-    padding: 24px;
-    position: relative;
-    overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-    transition: all 0.2s ease;
-  }
-
-  .stat-card:hover {
-    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-    border-color: var(--accent2);
-  }
-
-  .stat-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 4px;
-  }
-
-  .stat-card.blue::before { background: linear-gradient(90deg, var(--accent2), #0096d6); }
-  .stat-card.orange::before { background: linear-gradient(90deg, var(--accent3), #ed8936); }
-  .stat-card.green::before { background: linear-gradient(90deg, var(--green), #22c55e); }
-  .stat-card.red::before { background: linear-gradient(90deg, var(--accent), #dc2626); }
-
-  .stat-label {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
-    color: var(--gray-text);
-    margin-bottom: 12px;
-  }
-
-  .stat-value {
-    font-size: 42px;
-    font-weight: 700;
-    line-height: 1;
-    color: var(--navy-dark);
-    font-family: var(--mono);
-    margin-bottom: 10px;
-  }
-
-  .stat-card.blue .stat-value { color: var(--accent2); }
-  .stat-card.orange .stat-value { color: var(--accent3); }
-  .stat-card.green .stat-value { color: var(--green); }
-  .stat-card.red .stat-value { color: var(--accent); }
-
-  .stat-sub {
-    font-size: 12px;
-    color: var(--gray-text);
-    line-height: 1.5;
-  }
-
-  .stat-badge {
-    display: inline-block;
-    font-size: 11px;
-    padding: 3px 8px;
-    border-radius: 4px;
-    font-weight: 700;
-    margin-right: 6px;
-  }
-
-  .badge-blue   { background: #e3f2fd; color: #1565c0; }
-  .badge-orange { background: #fff3e0; color: #e65100; }
-  .badge-green  { background: #e8f5e9; color: #1b5e20; }
-  .badge-red    { background: #ffebee; color: #b71c1c; }
-
-  /* ── CHARTS GRID ── */
-  .charts-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 16px;
-    margin-bottom: 28px;
-  }
-
-  .chart-card {
-    background: var(--white);
-    border: 1px solid var(--gray-border);
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-  }
-
-  .chart-card.full {
-    grid-column: 1 / -1;
-  }
-
-  .chart-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--gray-border);
-    background: #fafbfc;
-  }
-
-  .chart-title {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--gray-text);
-  }
-
-  .chart-body {
-    padding: 20px;
-    min-height: 280px;
-    display: flex;
-    align-items: center;
-    gap: 28px;
-  }
-
-  .chart-body.center {
-    justify-content: center;
-  }
-
-  .chart-canvas-wrap {
-    flex: 0 0 auto;
-  }
-
-  .chart-legend {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .legend-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 13px;
-    padding: 8px 0;
-  }
-
-  .legend-left {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .legend-dot {
-    width: 12px; height: 12px;
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-
-  .legend-name {
-    color: var(--gray-text);
-    font-weight: 500;
-  }
-
-  .legend-val {
-    font-weight: 700;
-    font-family: var(--mono);
-    font-size: 14px;
-    color: var(--navy-dark);
-  }
-
-  /* ── TABLE ── */
-  .table-card {
-    background: var(--white);
-    border: 1px solid var(--gray-border);
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-  }
-
-  .table-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--gray-border);
-    background: #fafbfc;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .table-title {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--gray-text);
-  }
-
-  .view-all-link {
-    font-size: 12px;
-    color: var(--accent2);
-    text-decoration: none;
-    font-weight: 600;
-    transition: color 0.2s;
-  }
-
-  .view-all-link:hover {
-    color: var(--navy-mid);
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  thead th {
-    padding: 12px 16px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-    color: var(--gray-text);
-    background: #f8f9fb;
-    border-bottom: 1px solid var(--gray-border);
-    text-align: left;
-  }
-
-  tbody tr {
-    border-bottom: 1px solid #f0f1f3;
-    transition: background 0.15s;
-  }
-
-  tbody tr:hover {
-    background: #fafbfc;
-  }
-
-  tbody tr:last-child {
-    border-bottom: none;
-  }
-
-  tbody td {
-    padding: 13px 16px;
-    font-size: 13px;
-    color: var(--text);
-  }
-
-  .td-mono {
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--gray-text);
-  }
-
-  .status-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 4px 10px;
-    border-radius: 14px;
-    letter-spacing: 0.3px;
-    text-transform: capitalize;
-  }
-
-  .status-pill .dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    animation: none;
-  }
-
-  .status-pill .dot.pulse {
-    animation: pulse 1.5s infinite;
-  }
-
-  .pill-done {
-    background: #e8f5e9;
-    color: #1b5e20;
-  }
-
-  .pill-done .dot {
-    background: var(--green);
-  }
-
-  .pill-scanning {
-    background: #e3f2fd;
-    color: #1565c0;
-  }
-
-  .pill-scanning .dot {
-    background: var(--accent2);
-    animation: pulse 1.5s infinite;
-  }
-
-  .pill-failed {
-    background: #ffebee;
-    color: #b71c1c;
-  }
-
-  .pill-failed .dot {
-    background: var(--accent);
-  }
-
-  .type-badge {
-    display: inline-block;
-    font-size: 10px;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 4px;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-  }
-
-  .type-security { background: #ede7f6; color: #4527a0; }
-  .type-port     { background: #e0f7fa; color: #006064; }
-  .type-web      { background: #fff3e0; color: #e65100; }
-  .type-cve      { background: #fce4ec; color: #880e4f; }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-
-  /* ── EMPTY STATE ── */
-  .empty-state {
-    text-align: center;
-    padding: 40px 20px;
-    color: var(--gray-text);
-  }
-
-  .empty-state-icon {
-    font-size: 48px;
-    margin-bottom: 16px;
-    opacity: 0.3;
-  }
-
-  .empty-state p {
-    margin: 8px 0;
-    font-size: 14px;
-  }
-
-  .empty-state-link {
-    color: var(--accent2);
-    text-decoration: none;
-    font-weight: 600;
-    margin-top: 12px;
-    display: inline-block;
-  }
-
-  /* ── RESPONSIVE ── */
-  @media (max-width: 768px) {
-    .stats-row {
-      grid-template-columns: 1fr 1fr;
-    }
-
-    .charts-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .stat-card {
-      padding: 16px;
-    }
-
-    .stat-value {
-      font-size: 32px;
-    }
-
-    .chart-body {
-      flex-direction: column;
-      min-height: auto;
-    }
-
-    tbody td {
-      padding: 10px 12px;
-      font-size: 12px;
-    }
-  }
-</style>
-
-<div class="dashboard-container">
-
-  <!-- DASHBOARD HEADER -->
-  <div class="dashboard-header">
-    <h1>Security Dashboard</h1>
-    <p>Real-time overview of your vulnerability scans and security posture</p>
-  </div>
-
-  <!-- STAT CARDS -->
-  <div class="stats-row">
-    <div class="stat-card blue">
-      <div class="stat-label">Total Scans</div>
-      <div class="stat-value">{{ dashboard_data.total_scans }}</div>
-      <div class="stat-sub">All time scans performed</div>
-    </div>
-
-    <div class="stat-card green">
-      <div class="stat-label">Completed</div>
-      <div class="stat-value">{{ dashboard_data.done_scans }}</div>
-      <div class="stat-sub">
-        <span class="stat-badge badge-green">{{ dashboard_data.completion_rate }}%</span> completion rate
-      </div>
-    </div>
-
-    <div class="stat-card orange">
-      <div class="stat-label">Running</div>
-      <div class="stat-value">{{ dashboard_data.running_scans }}</div>
-      <div class="stat-sub">Currently scanning</div>
-    </div>
-
-    <div class="stat-card red">
-      <div class="stat-label">Failed</div>
-      <div class="stat-value">{{ dashboard_data.failed_scans }}</div>
-      <div class="stat-sub">Errors encountered</div>
-    </div>
-  </div>
-
-  <!-- CHARTS ROW -->
-  <div class="charts-grid">
-
-    <!-- SCANS BY TYPE (bar) -->
-    <div class="chart-card">
-      <div class="chart-header">
-        <span class="chart-title">Scans by Type</span>
-      </div>
-      <div class="chart-body">
-        <canvas id="barChart" height="200"></canvas>
-      </div>
-    </div>
-
-    <!-- SEVERITY (donut) -->
-    <div class="chart-card">
-      <div class="chart-header">
-        <span class="chart-title">Risk Level Distribution</span>
-      </div>
-      <div class="chart-body">
-        <div class="chart-canvas-wrap">
-          <canvas id="donutSeverity" width="150" height="150"></canvas>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+
+<div class="dashboard">
+
+    <!-- 🔥 WELCOME -->
+    <div class="welcome">
+        <div>
+            <h1>Welcome back, {{ user.name }}</h1>
+            <p>
+                You have {{ dashboard_data.total_vulns }} vulnerabilities
+                and {{ dashboard_data.fixed_vulns }} fixed
+            </p>
         </div>
-        <div class="chart-legend">
-          <div class="legend-item">
-            <div class="legend-left">
-              <div class="legend-dot" style="background:#e8411a"></div>
-              <span class="legend-name">Critical</span>
-            </div>
-            <span class="legend-val">{{ dashboard_data.severity_counts.critical }}</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-left">
-              <div class="legend-dot" style="background:#f5a623"></div>
-              <span class="legend-name">High</span>
-            </div>
-            <span class="legend-val">{{ dashboard_data.severity_counts.high }}</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-left">
-              <div class="legend-dot" style="background:#2196c4"></div>
-              <span class="legend-name">Medium</span>
-            </div>
-            <span class="legend-val">{{ dashboard_data.severity_counts.medium }}</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-left">
-              <div class="legend-dot" style="background:#27ae60"></div>
-              <span class="legend-name">Low</span>
-            </div>
-            <span class="legend-val">{{ dashboard_data.severity_counts.low }}</span>
-          </div>
+    </div>
+
+    <!-- 🔥 SEVERITY CARDS -->
+    <div class="cards">
+        <div class="card critical">
+            <h3>Critical</h3>
+            <strong>{{ dashboard_data.severity_counts.critical }}</strong>
         </div>
-      </div>
-    </div>
-
-    <!-- COMPLETION (donut) -->
-    <div class="chart-card">
-      <div class="chart-header">
-        <span class="chart-title">Scan Status Overview</span>
-      </div>
-      <div class="chart-body">
-        <div class="chart-canvas-wrap">
-          <canvas id="donutStatus" width="150" height="150"></canvas>
+        <div class="card high">
+            <h3>High</h3>
+            <strong>{{ dashboard_data.severity_counts.high }}</strong>
         </div>
-        <div class="chart-legend">
-          <div class="legend-item">
-            <div class="legend-left">
-              <div class="legend-dot" style="background:#27ae60"></div>
-              <span class="legend-name">Done</span>
-            </div>
-            <span class="legend-val">{{ dashboard_data.done_scans }}</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-left">
-              <div class="legend-dot" style="background:#2196c4"></div>
-              <span class="legend-name">Scanning</span>
-            </div>
-            <span class="legend-val">{{ dashboard_data.running_scans }}</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-left">
-              <div class="legend-dot" style="background:#e8411a"></div>
-              <span class="legend-name">Failed</span>
-            </div>
-            <span class="legend-val">{{ dashboard_data.failed_scans }}</span>
-          </div>
+        <div class="card medium">
+            <h3>Medium</h3>
+            <strong>{{ dashboard_data.severity_counts.medium }}</strong>
         </div>
-      </div>
+        <div class="card low">
+            <h3>Low</h3>
+            <strong>{{ dashboard_data.severity_counts.low }}</strong>
+        </div>
     </div>
 
-    <!-- SCANS OVER TIME (line) -->
-    <div class="chart-card full">
-      <div class="chart-header">
-        <span class="chart-title">Scan Activity (Last 7 Days)</span>
-      </div>
-      <div class="chart-body">
-        <canvas id="lineChart" height="200"></canvas>
-      </div>
+    <!-- 🔥 CHARTS -->
+    <div class="charts">
+        <div class="panel">
+            <h2>Vulnerabilities vs Fixed</h2>
+            <canvas id="vulnChart"></canvas>
+        </div>
+
+        <div class="panel">
+            <h2>Assets Risk Distribution</h2>
+            <canvas id="donutChart"></canvas>
+        </div>
     </div>
 
-  </div>
-
-  <!-- RECENT SCANS TABLE -->
-  <div class="table-card">
-    <div class="table-header">
-      <span class="table-title">Recent Scans</span>
-      <a href="{{ url_for('result') }}" class="view-all-link">View all →</a>
+    <!-- 🔥 ASSETS TABLE -->
+    <div class="panel">
+        <h2>Assets Overview</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Target</th>
+                    <th>Vulnerabilities</th>
+                    <th>Risk</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for asset in dashboard_data.assets %}
+                <tr>
+                    <td>{{ asset.name }}</td>
+                    <td>{{ asset.target }}</td>
+                    <td>{{ asset.vulnerabilities }}</td>
+                    <td class="risk {{ asset.risk_level|lower }}">
+                        {{ asset.risk_level }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
-
-    {% if dashboard_data.recent_scans %}
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Target</th>
-            <th>Type</th>
-            <th>Mode</th>
-            <th>Status</th>
-            <th>Started</th>
-            <th>Completed</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for scan in dashboard_data.recent_scans %}
-          <tr>
-            <td class="td-mono">#{{ scan.id }}</td>
-            <td class="td-mono">{{ scan.target }}</td>
-            <td><span class="type-badge type-{{ scan.scan_type|lower }}">{{ scan.scan_type }}</span></td>
-            <td style="color:var(--gray-text);font-size:12px">{{ scan.scan_mode or '—' }}</td>
-            <td>
-              <span class="status-pill pill-{{ scan.status }}">
-                <span class="dot{% if scan.status == 'scanning' %} pulse{% endif %}"></span>{{ scan.status|capitalize }}
-              </span>
-            </td>
-            <td style="color:var(--gray-text);font-size:12px">
-              {% if scan.created_at %}
-                {{ scan.created_at[:16] }}
-              {% else %}
-                —
-              {% endif %}
-            </td>
-            <td style="color:var(--gray-text);font-size:12px">
-              {% if scan.completed_at %}
-                {{ scan.completed_at[:16] }}
-              {% else %}
-                —
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="empty-state">
-        <div class="empty-state-icon">📊</div>
-        <p>No scans yet. Start your first scan to see results here.</p>
-        <a href="{{ url_for('scan') }}" class="empty-state-link">+ Start a Scan</a>
-      </div>
-    {% endif %}
-
-  </div>
 
 </div>
 
-<!-- Chart.js & Auto-refresh Script -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
 <script>
-  // Data from Flask backend
-  const DATA = {
-    total: {{ dashboard_data.total_scans }},
-    done: {{ dashboard_data.done_scans }},
-    running: {{ dashboard_data.running_scans }},
-    failed: {{ dashboard_data.failed_scans }},
-    rate: {{ dashboard_data.completion_rate }},
-    types: {
-      security: {{ dashboard_data.scan_type_counts.security }},
-      web: {{ dashboard_data.scan_type_counts.web }},
-      port: {{ dashboard_data.scan_type_counts.port }},
-      cve: {{ dashboard_data.scan_type_counts.cve }}
-    },
-    severity: {
-      critical: {{ dashboard_data.severity_counts.critical }},
-      high: {{ dashboard_data.severity_counts.high }},
-      medium: {{ dashboard_data.severity_counts.medium }},
-      low: {{ dashboard_data.severity_counts.low }}
-    },
-    activity: [4, 7, 5, 9, 6, 8, 3]  // Example data for 7 days
-  };
-
-  const CHART_OPTS = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        callbacks: {
-          title: i => i[0].label,
-          label: i => ' ' + i.raw
-        }
-      }
-    },
-    animation: { duration: 700, easing: 'easeOutQuart' }
-  };
-
-  // BAR — Scans by type
-  new Chart(document.getElementById('barChart'), {
-    type: 'bar',
+new Chart(document.getElementById("vulnChart"), {
+    type: "line",
     data: {
-      labels: ['Security', 'Web', 'Port', 'CVE'],
-      datasets: [{
-        data: [DATA.types.security, DATA.types.web, DATA.types.port, DATA.types.cve],
-        backgroundColor: ['#4527a0cc', '#e65100cc', '#006064cc', '#880e4fcc'],
-        borderRadius: 4,
-        borderSkipped: false
-      }]
-    },
-    options: {
-      ...CHART_OPTS,
-      scales: {
-        x: {
-          grid: { display: false },
-          ticks: { font: { family: "'IBM Plex Sans'", size: 11 }, color: '#5a6474' }
-        },
-        y: {
-          grid: { color: '#f0f0f0' },
-          ticks: { font: { family: "'IBM Plex Mono'", size: 10 }, color: '#5a6474', stepSize: 3 },
-          beginAtZero: true
-        }
-      }
+        labels: ["Now"],
+        datasets: [
+            {
+                label: "Vulnerabilities",
+                data: [{{ dashboard_data.total_vulns }}],
+                borderColor: "#ef4444",
+                fill: true
+            },
+            {
+                label: "Fixed",
+                data: [{{ dashboard_data.fixed_vulns }}],
+                borderColor: "#22c55e",
+                fill: true
+            }
+        ]
     }
-  });
+});
 
-  // DONUT — Severity
-  new Chart(document.getElementById('donutSeverity'), {
-    type: 'doughnut',
+new Chart(document.getElementById("donutChart"), {
+    type: "doughnut",
     data: {
-      labels: ['Critical', 'High', 'Medium', 'Low'],
-      datasets: [{
-        data: [DATA.severity.critical, DATA.severity.high, DATA.severity.medium, DATA.severity.low],
-        backgroundColor: ['#e8411a', '#f5a623', '#2196c4', '#27ae60'],
-        borderWidth: 2,
-        borderColor: '#fff',
-        hoverOffset: 4
-      }]
-    },
-    options: { ...CHART_OPTS, cutout: '68%' }
-  });
-
-  // DONUT — Status
-  new Chart(document.getElementById('donutStatus'), {
-    type: 'doughnut',
-    data: {
-      labels: ['Done', 'Scanning', 'Failed'],
-      datasets: [{
-        data: [DATA.done, DATA.running, DATA.failed],
-        backgroundColor: ['#27ae60', '#2196c4', '#e8411a'],
-        borderWidth: 2,
-        borderColor: '#fff',
-        hoverOffset: 4
-      }]
-    },
-    options: { ...CHART_OPTS, cutout: '68%' }
-  });
-
-  // LINE — Activity
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  new Chart(document.getElementById('lineChart'), {
-    type: 'line',
-    data: {
-      labels: days,
-      datasets: [{
-        data: DATA.activity,
-        borderColor: '#2196c4',
-        backgroundColor: 'rgba(33,150,196,.08)',
-        borderWidth: 2.5,
-        pointBackgroundColor: '#2196c4',
-        pointRadius: 5,
-        pointBorderWidth: 0,
-        fill: true,
-        tension: 0.35
-      }]
-    },
-    options: {
-      ...CHART_OPTS,
-      scales: {
-        x: {
-          grid: { display: false },
-          ticks: { font: { family: "'IBM Plex Sans'", size: 11 }, color: '#5a6474' }
-        },
-        y: {
-          grid: { color: '#f0f0f0' },
-          ticks: { font: { family: "'IBM Plex Mono'", size: 10 }, color: '#5a6474', stepSize: 2 },
-          beginAtZero: true
-        }
-      }
+        labels: ["Critical", "High", "Medium", "Low"],
+        datasets: [{
+            data: [
+                {{ dashboard_data.severity_counts.critical }},
+                {{ dashboard_data.severity_counts.high }},
+                {{ dashboard_data.severity_counts.medium }},
+                {{ dashboard_data.severity_counts.low }}
+            ]
+        }]
     }
-  });
-
-  // Auto-refresh dashboard every 10 seconds if scans are running
-  {% if dashboard_data.running_scans > 0 %}
-  setInterval(() => {
-    location.reload();
-  }, 10000);
-  {% endif %}
+});
 </script>
 
 {% endblock %}
