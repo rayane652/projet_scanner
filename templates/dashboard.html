@@ -6,32 +6,69 @@
 
     <!-- 🔥 WELCOME -->
     <div class="welcome">
-        <div>
-            <h1>Welcome back, {{ user.name }}</h1>
-            <p>
-                You have {{ dashboard_data.total_vulns }} vulnerabilities
-                and {{ dashboard_data.fixed_vulns }} fixed
+        <div class="welcome-left">
+            <h1>Welcome back, {{ user.name.title() }}</h1>
+
+            <p class="welcome-sub">
+                {% if dashboard_data.severity_counts.critical > 0 %}
+                    {{ dashboard_data.severity_counts.critical }} critical vulnerabilities need attention
+                {% else %}
+                    Your system is stable — no critical threats detected
+                {% endif %}
             </p>
+
+            <div class="welcome-chips">
+                <span class="chip critical">
+                    {{ dashboard_data.severity_counts.critical }} Critical
+                </span>
+                <span class="chip fixed">
+                    {{ dashboard_data.fixed_vulns }} Fixed
+                </span>
+                <span class="chip assets">
+                    {{ dashboard_data.total_assets }} Assets
+                </span>
+            </div>
+        </div>
+
+        <div class="welcome-right">
+            <a href="{{ url_for('scan') }}" class="main-btn">
+                Start Scan
+            </a>
         </div>
     </div>
 
-    <!-- 🔥 SEVERITY CARDS -->
+    <!-- 🔥 CARDS -->
     <div class="cards">
         <div class="card critical">
-            <h3>Critical</h3>
-            <strong>{{ dashboard_data.severity_counts.critical }}</strong>
+            <i class="fas fa-biohazard"></i>
+            <div>
+                <span>Critical</span>
+                <strong>{{ dashboard_data.severity_counts.critical }}</strong>
+            </div>
         </div>
+
         <div class="card high">
-            <h3>High</h3>
-            <strong>{{ dashboard_data.severity_counts.high }}</strong>
+            <i class="fas fa-fire"></i>
+            <div>
+                <span>High Risk</span>
+                <strong>{{ dashboard_data.severity_counts.high }}</strong>
+            </div>
         </div>
+
         <div class="card medium">
-            <h3>Medium</h3>
-            <strong>{{ dashboard_data.severity_counts.medium }}</strong>
+            <i class="fas fa-exclamation-triangle"></i>
+            <div>
+                <span>Medium</span>
+                <strong>{{ dashboard_data.severity_counts.medium }}</strong>
+            </div>
         </div>
+
         <div class="card low">
-            <h3>Low</h3>
-            <strong>{{ dashboard_data.severity_counts.low }}</strong>
+            <i class="fas fa-shield-alt"></i>
+            <div>
+                <span>Low</span>
+                <strong>{{ dashboard_data.severity_counts.low }}</strong>
+            </div>
         </div>
     </div>
 
@@ -43,34 +80,43 @@
         </div>
 
         <div class="panel">
-            <h2>Assets Risk Distribution</h2>
+            <h2>Severity Distribution</h2>
             <canvas id="donutChart"></canvas>
         </div>
     </div>
 
-    <!-- 🔥 ASSETS TABLE -->
+    <!-- 🔥 TABLE -->
     <div class="panel">
         <h2>Assets Overview</h2>
-        <table>
+
+        <table class="asset-table">
             <thead>
                 <tr>
-                    <th>Name</th>
+                    <th>Asset</th>
                     <th>Target</th>
                     <th>Vulnerabilities</th>
-                    <th>Risk</th>
+                    <th>Status</th>
                 </tr>
             </thead>
+
             <tbody>
-                {% for asset in dashboard_data.assets %}
+            {% for asset in dashboard_data.assets %}
                 <tr>
                     <td>{{ asset.name }}</td>
                     <td>{{ asset.target }}</td>
                     <td>{{ asset.vulnerabilities }}</td>
-                    <td class="risk {{ asset.risk_level|lower }}">
-                        {{ asset.risk_level }}
+
+                    <td>
+                        {% if asset.risk_level == "CRITICAL" %}
+                            <span class="badge critical">At Risk</span>
+                        {% elif asset.risk_level == "HIGH" %}
+                            <span class="badge high">Warning</span>
+                        {% else %}
+                            <span class="badge safe">Secure</span>
+                        {% endif %}
                     </td>
                 </tr>
-                {% endfor %}
+            {% endfor %}
             </tbody>
         </table>
     </div>
@@ -80,21 +126,37 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
 <script>
+const vulnHistory = [
+    {{ dashboard_data.total_vulns }},
+    {{ dashboard_data.total_vulns - dashboard_data.fixed_vulns }},
+    {{ dashboard_data.total_vulns }}
+];
+
+const fixedHistory = [
+    0,
+    {{ dashboard_data.fixed_vulns }},
+    {{ dashboard_data.fixed_vulns }}
+];
+
 new Chart(document.getElementById("vulnChart"), {
     type: "line",
     data: {
-        labels: ["Now"],
+        labels: ["Before", "Fixed", "Now"],
         datasets: [
             {
                 label: "Vulnerabilities",
-                data: [{{ dashboard_data.total_vulns }}],
+                data: vulnHistory,
                 borderColor: "#ef4444",
+                backgroundColor: "rgba(239,68,68,0.1)",
+                tension: 0.4,
                 fill: true
             },
             {
                 label: "Fixed",
-                data: [{{ dashboard_data.fixed_vulns }}],
+                data: fixedHistory,
                 borderColor: "#22c55e",
+                backgroundColor: "rgba(34,197,94,0.1)",
+                tension: 0.4,
                 fill: true
             }
         ]
@@ -105,14 +167,23 @@ new Chart(document.getElementById("donutChart"), {
     type: "doughnut",
     data: {
         labels: ["Critical", "High", "Medium", "Low"],
-        datasets: [{
-            data: [
-                {{ dashboard_data.severity_counts.critical }},
-                {{ dashboard_data.severity_counts.high }},
-                {{ dashboard_data.severity_counts.medium }},
-                {{ dashboard_data.severity_counts.low }}
-            ]
-        }]
+       datasets: [{
+    data: [
+        {{ dashboard_data.severity_counts.critical }},
+        {{ dashboard_data.severity_counts.high }},
+        {{ dashboard_data.severity_counts.medium }},
+        {{ dashboard_data.severity_counts.low }}
+    ],
+
+    backgroundColor: [
+        "#7f1d1d", // Critical (very dark red)
+        "#ef4444", // High (red)
+        "#f97316", // Medium (orange)
+        "#facc15"  // Low (yellow)
+    ],
+
+    borderWidth: 0
+}]
     }
 });
 </script>

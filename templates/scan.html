@@ -1,90 +1,212 @@
 {% extends "base.html" %}
 
 {% block content %}
-{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/scan.css') }}">
-{% endblock %}
-<div class="scan-page">
-    <section class="scan-hero">
-        <div>
-            <span>Scanner</span>
-            <h1>Launch a focused machine scan</h1>
-            <p>Name the machine, choose the scan depth, and Vulnix will keep the asset history for you.</p>
-        </div>
-        <div class="scan-orbit">
-            <i class="fas fa-shield-halved"></i>
-        </div>
-    </section>
 
-    <section class="scan-console">
-        <form class="scan-form beautiful" action="/run_scan" method="POST">
-            <label>
-                <span>Machine Name</span>
-                <input type="text" name="machine_name" placeholder="Production API, Kali VM, Office router" class="scan-input">
-            </label>
+<div class="scan-layout">
 
-            <label>
-                <span>Target</span>
-                <input type="text" name="target" placeholder="IP, domain, or URL" required class="scan-input">
-            </label>
+    <!-- LEFT SIDE -->
+    <div class="scan-main">
 
-            <label>
-                <span>Scan Type</span>
-                <select name="type" id="scan-type" class="scan-select">
-                    <option value="security">Security Scan</option>
-                    <option value="web">Web Scan</option>
-                    <option value="cve">CVE Search</option>
-                </select>
-            </label>
+        <!-- HERO -->
+        <section class="scan-hero">
+            <div class="hero-text">
+                <span class="badge">NEW SCAN</span>
+                <h1>Start a New Scan</h1>
+                <p>Let Vulnix discover vulnerabilities before attackers do.</p>
+            </div>
+            <div class="hero-graphic">
+                <div class="radar">
+                    <div class="ring"></div>
+                    <div class="ring delay1"></div>
+                    <div class="ring delay2"></div>
+                    <div class="scan-line"></div>
+                </div>
+            </div>
+        </section>
 
-            <label>
-                <span>Access Mode</span>
-                <select name="scan_mode" id="scan-mode" class="scan-select">
-                    <option value="unauthenticated">Non-authenticated Scan</option>
-                    <option value="authenticated">Authenticated Scan</option>
-                </select>
-            </label>
+        <!-- FORM -->
+        <section class="scan-card">
 
-            <div id="credential-fields" class="credential-fields beautiful">
-                <label>
-                    <span>Credential Type</span>
-                    <select name="auth_type" class="scan-select">
-                        <option value="http_basic">HTTP Basic</option>
-                        <option value="ssh">SSH</option>
-                    </select>
-                </label>
+            <h3 class="card-title">
+                <i class="fas fa-cube"></i>
+                SCAN CONFIGURATION
+            </h3>
 
-                <label>
-                    <span>Username</span>
-                    <input type="text" name="auth_username" placeholder="Username" autocomplete="username" class="scan-input">
-                </label>
+            <form class="scan-form" action="/run_scan" method="POST">
 
-                <label>
-                    <span>Password</span>
-                    <input type="password" name="auth_password" placeholder="Password" autocomplete="current-password" class="scan-input">
-                </label>
+                <!-- hidden for backend -->
+                <input type="hidden" name="scan_mode" id="scan-mode-hidden" value="unauthenticated">
+
+                <div class="grid-2">
+
+                    <label class="field">
+                        <span>Machine Name <i class="fas fa-info-circle"></i></span>
+                        <div class="input-box no-icon">
+                            <input type="text" name="machine_name" placeholder="e.g. Production API, Kali VM, Office Router">
+                        </div>
+                    </label>
+
+                    <label class="field">
+                        <span>Target <i class="fas fa-info-circle"></i></span>
+                        <div class="input-box icon-right no-icon">
+                            <input type="text" name="target" placeholder="IP, Domain or URL" required>
+                            <i class="fas fa-cog"></i>
+                        </div>
+                    </label>
+
+                    <label class="field full-row">
+                        <span>Scan Type <i class="fas fa-info-circle"></i></span>
+                        <div class="input-box ">
+                            <i class="fas fa-shield-alt left-icon"></i>
+                            <select name="type" id="scan-type">
+                                <option value="security">Security Scan</option>
+                                <option value="web">Web Scan</option>
+                                <option value="cve">CVE Search</option>
+                            </select>
+                        </div>
+                    </label>
+
+                </div>
+
+                <!-- CREDENTIALS -->
+                <div id="credential-fields" class="credentials">
+
+                    <div class="cred-header">
+                        <span><i class="fas fa-lock"></i> Authenticated Credentials (Optional)</span>
+                        <label class="switch">
+                            <input type="checkbox" id="auth-toggle">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="grid-2">
+
+                        <label class="field">
+                            <span>Username</span>
+                            <div class="input-box">
+                                <i class="fas fa-user left-icon"></i>
+                                <input type="text" name="auth_username" placeholder="Enter username">
+                            </div>
+                        </label>
+
+                        <label class="field">
+                            <span>Password</span>
+                            <div class="input-box">
+                                <i class="fas fa-lock left-icon"></i>
+                                <input type="password" name="auth_password" placeholder="Enter password">
+                            </div>
+                        </label>
+
+                        <label class="field full">
+                            <span>Credential Type</span>
+                            <div class="input-box">
+                                <i class="fas fa-id-card left-icon"></i>
+                                <select name="auth_type">
+                                    <option value="http_basic">HTTP Basic</option>
+                                    <option value="ssh">SSH</option>
+                                </select>
+                            </div>
+                        </label>
+
+                    </div>
+                </div>
+
+                <button type="submit" class="scan-btn">
+                    <i class="fas fa-play"></i>
+                    Start Scan →
+                </button>
+
+            </form>
+        </section>
+    </div>
+
+    <!-- RIGHT SIDE -->
+    <aside class="scan-side">
+
+        <!-- SCAN OVERVIEW -->
+        <div class="side-card">
+            <h4 class="side-title">SCAN OVERVIEW</h4>
+
+            <div class="side-row">
+                <div class="icon-box blue"><i class="fas fa-clock"></i></div>
+                <div class="side-text">
+                    <span>Estimated Time</span>
+                    <b>2 - 5 min</b>
+                </div>
             </div>
 
-            <button type="submit" class="scan-button">
-                <i class="fas fa-play"></i>
-                Start Scan
-            </button>
-        </form>
-    </section>
+            <div class="side-row">
+                <div class="icon-box green"><i class="fas fa-signal"></i></div>
+                <div class="side-text">
+                    <span>Scan Depth</span>
+                    <b>Medium</b>
+                </div>
+            </div>
+
+            <div class="side-row">
+                <div class="icon-box purple"><i class="fas fa-shield-alt"></i></div>
+                <div class="side-text">
+                    <span>Checks Performed</span>
+                    <b>120+</b>
+                </div>
+            </div>
+
+            <div class="side-row last">
+                <div class="icon-box orange"><i class="fas fa-database"></i></div>
+                <div class="side-text">
+                    <span>Data Collected</span>
+                    <b>Vulnerabilities, Ports,<br>Services, CVEs</b>
+                </div>
+            </div>
+        </div>
+
+        <!-- WHAT THIS SCAN DOES -->
+        <div class="side-card2">
+
+            <h4 class="side2-title">WHAT THIS SCAN DOES</h4>
+
+            <div class="side2-list">
+                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Discovers open ports and services</span></div>
+                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Detects known vulnerabilities</span></div>
+                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Analyzes configurations</span></div>
+                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Checks for web vulnerabilities</span></div>
+                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Generates risk score and report</span></div>
+            </div>
+
+            <div class="scan-tip">
+                <i class="fas fa-lightbulb"></i>
+                <p><strong>Tip:</strong> Authenticated scans provide deeper insights and better accuracy.</p>
+            </div>
+
+        </div>
+
+    </aside>
+
 </div>
 
+<!-- SCRIPT -->
 <script>
-const scanType = document.getElementById("scan-type");
-const scanMode = document.getElementById("scan-mode");
-const credentialFields = document.getElementById("credential-fields");
+const toggle = document.getElementById("auth-toggle");
+const hiddenInput = document.getElementById("scan-mode-hidden");
 
-function updateCredentialFields() {
-    const canAuthenticate = scanType.value === "security" && scanMode.value === "authenticated";
-    credentialFields.style.display = canAuthenticate ? "grid" : "none";
-}
+const inputs = document.querySelectorAll(
+    'input[name="auth_username"], input[name="auth_password"], select[name="auth_type"]'
+);
 
-scanType.addEventListener("change", updateCredentialFields);
-scanMode.addEventListener("change", updateCredentialFields);
-updateCredentialFields();
+toggle.addEventListener("change", () => {
+    const enabled = toggle.checked;
+
+    hiddenInput.value = enabled ? "authenticated" : "unauthenticated";
+
+    inputs.forEach(input => {
+        input.disabled = !enabled;
+        input.style.opacity = enabled ? "1" : "0.5";
+    });
+});
+
+toggle.dispatchEvent(new Event("change"));
 </script>
+
 {% endblock %}
