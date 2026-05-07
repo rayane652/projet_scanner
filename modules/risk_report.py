@@ -28,9 +28,9 @@ SEVERITY_LABELS = {
 
 SEVERITY_COLORS = {
     "CRITICAL": "#8f1d1d",
-    "HIGH": "#ef2525",
-    "MEDIUM": "#e07a00",
-    "LOW": "#2563eb",
+    "HIGH": "#ef4444",
+    "MEDIUM": "#f97316",
+    "LOW": "#22c55e",
     "INFO": "#66758a",
 }
 
@@ -75,15 +75,13 @@ def _add_count(counts, severity):
 
 
 def _risk_level(score):
-    if score >= 80:
+    if score >= 75:
         return "CRITICAL"
-    if score >= 55:
+    if score >= 50:
         return "HIGH"
     if score >= 25:
         return "MEDIUM"
-    if score > 0:
-        return "LOW"
-    return "INFO"
+    return "LOW"
 
 
 def _risk_level_from_counts(counts):
@@ -95,7 +93,7 @@ def _risk_level_from_counts(counts):
         return "MEDIUM"
     if counts["low"] > 0:
         return "LOW"
-    return "INFO"
+    return "LOW"
 
 
 def _dedupe(items):
@@ -428,7 +426,7 @@ def _severity_ring_style(counts):
     total = sum(count for _, count in visible_counts)
 
     if total == 0:
-        return "conic-gradient(#e2e8f0 0% 100%)"
+        return "conic-gradient(#22c55e 0% 100%)"
 
     current = 0
     parts = []
@@ -1015,7 +1013,7 @@ def build_security_report(
         "system_profile": system_profile,
         "authentication": auth_result,
         "risk_score": score,
-        "risk_level": _risk_level_from_counts(counts),
+        "risk_level": _risk_level(score),
         "severity_counts": counts,
         "severity_breakdown": _severity_breakdown(counts),
         "severity_ring_style": _severity_ring_style(counts),

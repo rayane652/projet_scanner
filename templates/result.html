@@ -1,104 +1,273 @@
 {% extends "base.html" %}
 
-{% block content %}
-{% if selected_scan and selected_scan.status == "scanning" %}
-    <meta http-equiv="refresh" content="3">
-{% endif %}
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/result.css') }}">
 {% endblock %}
 
-<div class="results-page">
-    <aside class="results-sidebar">
-        <h3>Saved Scans</h3>
-        {% if scans %}
-            <div class="saved-scan-list">
-            {% for scan in scans %}
-                <div class="saved-scan-card {% if selected_scan and selected_scan.id == scan.id %}selected{% endif %}">
-                    <a href="{{ url_for('result', scan_id=scan.id) }}">
-                        <b>#{{ scan.display_no|default(loop.index) }} - {{ scan.asset_label|default(scan.machine_name or scan.target) }}</b>
-                        <div>
-                            {{ scan.target }} - {{ scan.scan_type|upper }} | {{ scan.scan_mode or "n/a" }}
-                        </div>
-                        <div>
-                            Status:
-                            {% if scan.status == "scanning" %}
-                                <span class="status-text scanning"><b>SCANNING...</b></span>
-                            {% elif scan.status == "done" %}
-                                <span class="status-text done"><b>DONE</b></span>
-                            {% else %}
-                                <span class="status-text failed"><b>FAILED</b></span>
-                            {% endif %}
-                        </div>
-                    </a>
-                    <form action="{{ url_for('delete_scan', scan_id=scan.id) }}" method="POST">
-                        <button type="submit">
-                            <i class="fas fa-trash"></i> Delete
-                        </button>
-                    </form>
-                </div>
-            {% endfor %}
-            </div>
-        {% else %}
-            <p>No scans yet. Start one from Scan page.</p>
-        {% endif %}
-    </aside>
+{% block content %}
+{% if selected_scan and selected_scan.status == "scanning" %}
+    <meta http-equiv="refresh" content="3">
+{% endif %}
 
-    <section class="results-main">
-        <div class="result-title">
+<div class="result-dashboard">
+    {% if not selected_scan %}
+        <section class="result-empty">
+            <i class="fas fa-file-alt"></i>
+            <h2>No results found</h2>
+            <p>Run a scan and the result report will appear here.</p>
+            <a href="{{ url_for('scan_page') }}">Start Scan</a>
+        </section>
+    {% elif selected_scan.status == "scanning" %}
+        <section class="result-state-card">
+            <a class="return-icon" href="{{ url_for('asset_page') }}" aria-label="Back to assets">
+                <i class="fas fa-arrow-left"></i>
+            </a>
             <div>
-                <span>Scan Results{% if selected_scan %} #{{ selected_scan.display_no|default('') }}{% endif %}</span>
-                <h2>{% if selected_scan %}{{ selected_scan.asset_label|default(selected_scan.machine_name or selected_scan.target) }}{% elif target %}{{ target }}{% else %}Results{% endif %}</h2>
-                {% if target %}<p>{{ target }}</p>{% endif %}
+                <span>Scan Results</span>
+                <h2>{{ selected_scan.asset_label|default(selected_scan.machine_name or selected_scan.target) }}</h2>
+                <p>{{ target }}</p>
             </div>
-            {% if selected_scan %}
-                <a class="primary-action" href="{{ url_for('scan') }}"><i class="fas fa-plus"></i> New Scan</a>
-            {% endif %}
-        </div>
+            <strong class="status-badge scanning">Scanning...</strong>
+        </section>
+    {% elif selected_scan.status == "failed" %}
+        <section class="result-state-card failed">
+            <a class="return-icon" href="{{ url_for('asset_page') }}" aria-label="Back to assets">
+                <i class="fas fa-arrow-left"></i>
+            </a>
+            <div>
+                <span>Scan Results</span>
+                <h2>Scan failed</h2>
+                <p>{{ scan_error or "The scan could not be completed." }}</p>
+            </div>
+            <strong class="status-badge failed">Failed</strong>
+        </section>
+    {% elif selected_scan.status == "done" %}
+        {% if scan_type == "security" and results is mapping and not results.error %}
+            <section class="result-hero-card">
+                <div class="hero-section scan-overview">
+                    <div class="scan-title-row">
+                        <a class="return-icon" href="{{ url_for('asset_page') }}" aria-label="Back to assets">
+                            <i class="fas fa-arrow-left"></i>
+                        </a>
+                        <span>Scan Results</span>
+                        <strong class="status-badge done"><i class="fas fa-check"></i> Done</strong>
+                    </div>
 
-        {% if selected_scan and selected_scan.status == "scanning" %}
-            <p class="scan-state scanning">Scan is running...</p>
-        {% elif selected_scan and selected_scan.status == "failed" %}
-            <p class="scan-state failed">Scan failed{% if scan_error %}: {{ scan_error }}{% endif %}</p>
-        {% elif not selected_scan %}
-            <p class="empty-copy">No results found.</p>
-        {% endif %}
+                    <h1>{{ selected_scan.asset_label|default(selected_scan.machine_name or selected_scan.target) }}</h1>
+                    <p>{{ target }}</p>
 
-{% if selected_scan and selected_scan.status == "done" %}
-{% if scan_type == "security" and results is mapping and not results.error and results.summary.open_ports == 0 and results.summary.scanned_items == 0 and results.raw.web.error %}
-    <section class="scan-error-panel">
-        <div class="scan-error-icon">
-            <i class="fas fa-triangle-exclamation"></i>
-        </div>
-        <div>
-            <span>Target Unreachable</span>
-            <h3>{{ target }}</h3>
-            <p>Vulnix could not connect to this target as a website and did not find any open ports in the scanned range.</p>
+                    <a class="new-scan-btn" href="{{ url_for('scan_page') }}">
+                        <i class="fas fa-plus"></i>
+                        New Scan
+                    </a>
+                </div>
 
-            {% if results.raw.web.errors %}
-                <div class="error-detail-list">
-                    {% for error in results.raw.web.errors %}
-                        <code>{{ error }}</code>
+                <div class="hero-section report-summary">
+                    <span class="panel-kicker">Security scan report</span>
+                    <h2>{{ results.target }}</h2>
+                    <p>
+                        {{ results.scan_mode_label }}
+                        {% if results.authentication %}
+                            - {{ results.authentication.type_label }} {{ results.authentication.status }}
+                        {% endif %}
+                    </p>
+
+                    <div class="score-line">
+                        <strong>{{ results.risk_score }}</strong>
+                        <span>/ 100</span>
+                    </div>
+
+                    <div class="severity-strip">
+                        {% for item in results.severity_breakdown %}
+                            <span class="severity-cell severity-soft-{{ item.key }}">
+                                {{ item.label }} {{ item.count }}
+                            </span>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="hero-section score-panel">
+                    <div class="score-gauge risk-{{ results.risk_class }}" style="--score: {{ results.risk_score }}%;">
+                        <div>
+                            <strong>{{ results.risk_score }}</strong>
+                            <span>/100</span>
+                        </div>
+                    </div>
+                    <p>Security Score</p>
+                    <span class="risk-label {{ results.risk_class }}">{{ results.risk_level }}</span>
+                </div>
+            </section>
+
+            <section class="result-metrics">
+                <article class="metric-tile">
+                    <i class="fas fa-globe"></i>
+                    <div>
+                        <span>Open Ports</span>
+                        <strong>{{ results.summary.open_ports }}</strong>
+                        <small>{{ "Active ports found" if results.summary.open_ports else "No active ports" }}</small>
+                    </div>
+                </article>
+                <article class="metric-tile">
+                    <i class="fas fa-shield-halved"></i>
+                    <div>
+                        <span>Vulnerabilities</span>
+                        <strong>{{ results.summary.vulnerabilities }}</strong>
+                        <small>{{ "CVE matches found" if results.summary.vulnerabilities else "No CVEs found" }}</small>
+                    </div>
+                </article>
+                <article class="metric-tile">
+                    <i class="fas fa-link"></i>
+                    <div>
+                        <span>Web Paths</span>
+                        <strong>{{ results.summary.web_paths }}</strong>
+                        <small>{{ "Interesting paths found" if results.summary.web_paths else "No interesting paths" }}</small>
+                    </div>
+                </article>
+                <article class="metric-tile">
+                    <i class="fas fa-arrows-rotate"></i>
+                    <div>
+                        <span>Missing Updates</span>
+                        <strong>{{ results.summary.missing_updates }}</strong>
+                        <small>{{ "Updates need review" if results.summary.missing_updates else "No missing updates" }}</small>
+                    </div>
+                </article>
+                <article class="metric-tile">
+                    <i class="fas fa-clipboard-list"></i>
+                    <div>
+                        <span>Scanned Items</span>
+                        <strong>{{ results.summary.scanned_items }}</strong>
+                        <small>Total items scanned</small>
+                    </div>
+                </article>
+            </section>
+
+            <section class="result-panels">
+                <article class="panel-card inventory-panel">
+                    <div class="panel-title">
+                        <i class="fas fa-desktop"></i>
+                        <h3>Scan Inventory</h3>
+                    </div>
+
+                    <dl class="inventory-list">
+                        <div><dt>System</dt><dd>{{ results.system_profile.name }}</dd></div>
+                        <div><dt>OS Family</dt><dd>{{ results.system_profile.family }}</dd></div>
+                        <div><dt>Confidence</dt><dd class="text-medium">{{ results.system_profile.confidence }}</dd></div>
+                    </dl>
+
+                    <div class="inventory-stats">
+                        <span><i class="fas fa-server"></i> Services <b>{{ results.summary.services }}</b></span>
+                        <span><i class="fas fa-bug"></i> CVEs <b>{{ results.summary.cves }}</b></span>
+                        <span><i class="fas fa-globe"></i> Web Findings <b>{{ results.summary.web_findings }}</b></span>
+                        <span><i class="fas fa-list-check"></i> Total Findings <b>{{ results.summary.findings }}</b></span>
+                    </div>
+
+                    {% if results.system_profile.evidence %}
+                        <div class="evidence-list">
+                            {% for evidence in results.system_profile.evidence %}
+                                <span><i class="fas fa-circle-check"></i>{{ evidence }}</span>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </article>
+
+                <article class="panel-card actions-panel">
+                    <div class="panel-title">
+                        <i class="fas fa-shield-alt"></i>
+                        <h3>Recommended Actions</h3>
+                    </div>
+
+                    {% if results.recommendations %}
+                        <ul class="action-list">
+                            {% for recommendation in results.recommendations %}
+                                <li><i class="fas fa-check-circle"></i>{{ recommendation }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="muted-copy">No immediate actions were generated for this scan.</p>
+                    {% endif %}
+
+                  
+                </article>
+
+            </section>
+
+            <section class="details-panel-row">
+                <article class="panel-card details-panel">
+                    <div class="panel-title">
+                        <i class="fas fa-list"></i>
+                        <h3>Scanned Items Details</h3>
+                    </div>
+
+                    {% if results.scanned_items %}
+                        <div class="details-list">
+                            {% for item in results.scanned_items %}
+                                <details class="detail-row">
+                                    <summary>
+                                        <span class="severity-tag severity-soft-{{ item.severity|lower }}">{{ item.severity }}</span>
+                                        <b>{{ item.title }}</b>
+                                        <small>{{ item.category }}{% if item.subtitle %} - {{ item.subtitle }}{% endif %}</small>
+                                        <span class="detail-link">Details <i class="fas fa-chevron-right"></i></span>
+                                    </summary>
+                                    <div class="detail-body">
+                                        <p>{{ item.description }}</p>
+                                        {% if item.recommendation %}
+                                            <strong>Recommendation</strong>
+                                            <p>{{ item.recommendation }}</p>
+                                        {% endif %}
+                                    </div>
+                                </details>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="muted-copy">No scanned item details were generated.</p>
+                    {% endif %}
+                </article>
+            </section>
+
+            <section class="findings-overview panel-card">
+                <h3>Findings Overview</h3>
+
+                <div class="finding-circles">
+                    {% for item in results.severity_breakdown %}
+                        <div class="finding-circle-card">
+                            <div class="mini-ring severity-ring-{{ item.key }}" style="--percent: {{ item.percent }}%;">
+                                <span>{{ item.count }}</span>
+                            </div>
+                            <div>
+                                <b>{{ item.label }}</b>
+                                <small>{{ item.percent }}%</small>
+                            </div>
+                        </div>
                     {% endfor %}
                 </div>
-            {% endif %}
-        </div>
-    </section>
 
-{% elif scan_type == "security" and results is mapping and not results.error %}
-    <section class="security-report">
-        <div class="report-header">
-            <div>
-                <p class="report-kicker">Security scan report</p>
-                <h3>{{ results.target }}</h3>
-                <div class="scan-badges">
-                    <span>{{ results.scan_mode_label }}</span>
-                    {% if results.authentication %}
-                        <span class="auth-status auth-{{ results.authentication.status }}">
-                            {{ results.authentication.type_label }}: {{ results.authentication.status }}
-                        </span>
+                <div class="total-findings">
+                    <div class="donut-ring" style="--ring: {{ results.severity_ring_style }};"></div>
+                    <div>
+                        <span>Total Findings</span>
+                        <strong>{{ results.summary.findings }}</strong>
+                        <small>100%</small>
+                    </div>
+                </div>
+            </section>
+        {% elif results is mapping and results.error %}
+            <section class="scan-error-panel">
+                <div class="scan-error-icon">
+                    <i class="fas fa-triangle-exclamation"></i>
+                </div>
+                <div>
+                    <span>Scan Error</span>
+                    <h3>{{ results.error }}</h3>
+                    {% if results.message %}<p>{{ results.message }}</p>{% endif %}
+                    {% if results.details %}
+                        <div class="error-detail-list">
+                            {% for detail in results.details %}
+                                <code>{{ detail }}</code>
+                            {% endfor %}
+                        </div>
                     {% endif %}
                 </div>
+<<<<<<< HEAD
             </div>
 
             <div class="risk-score risk-{{ results.risk_level|lower }}">
@@ -497,137 +666,62 @@
                 {% endfor %}
                 </ul>
             {% endif %}
+=======
+            </section>
+>>>>>>> 8e27e82 (update)
         {% else %}
-            <h3>{{ results.title or results.final_url }}</h3>
-            <p><b>Final URL:</b> {{ results.final_url }}</p>
-            <p><b>Status:</b> {{ results.status_code }}</p>
-            <p><b>Content Type:</b> {{ results.content_type or "Unknown" }}</p>
-            <p><b>Server:</b> {{ results.server or "Unknown" }}</p>
-            <p><b>Powered By:</b> {{ results.powered_by or "Unknown" }}</p>
-
-            {% if results.technologies %}
-                <h4>Technology Hints</h4>
-                <ul>
-                {% for tech in results.technologies %}
-                    <li>{{ tech }}</li>
-                {% endfor %}
-                </ul>
-            {% endif %}
-
-            {% if results.findings %}
-                <h4>Findings</h4>
-                <ul>
-                {% for finding in results.findings %}
-                    <li>
-                        <b>{{ finding.severity }}</b>
-                        - {{ finding.name }}: {{ finding.detail }}
-                    </li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p style="color:green;">No basic web findings detected</p>
-            {% endif %}
-
-            {% if results.forms %}
-                <h4>Forms</h4>
-                <ul>
-                {% for form in results.forms %}
-                    <li>{{ form.method }} {{ form.action or "/" }}</li>
-                {% endfor %}
-                </ul>
-            {% endif %}
-
-            {% if results.interesting_paths %}
-                <h4>Interesting Paths</h4>
-                <ul>
-                {% for path in results.interesting_paths %}
-                    <li>{{ path.path }} - HTTP {{ path.status }}</li>
-                {% endfor %}
-                </ul>
-            {% endif %}
-        {% endif %}
-    </div>
-
-{% elif results is mapping and results.error %}
-    <section class="scan-error-panel">
-        <div class="scan-error-icon">
-            <i class="fas fa-triangle-exclamation"></i>
-        </div>
-        <div>
-            <span>Scan Error</span>
-            <h3>{{ results.error }}</h3>
-            {% if results.message %}
-                <p>{{ results.message }}</p>
-            {% endif %}
-            {% if results.details %}
-                <div class="error-detail-list">
-                    {% for detail in results.details %}
-                        <code>{{ detail }}</code>
-                    {% endfor %}
+            <section class="generic-result-card">
+                <div class="scan-title-row">
+                    <a class="return-icon" href="{{ url_for('asset_page') }}" aria-label="Back to assets">
+                        <i class="fas fa-arrow-left"></i>
+                    </a>
+                    <span>Scan Results</span>
+                    <strong class="status-badge done"><i class="fas fa-check"></i> Done</strong>
                 </div>
-            {% endif %}
-        </div>
-    </section>
+                <h2>{{ selected_scan.asset_label|default(target) }}</h2>
+                <p>{{ target }}</p>
 
-{% elif scan_type == "cve" %}
-    {% if results %}
-        {% for c in results %}
-            <div style="border:1px solid #ddd; margin:15px 0; padding:15px; border-radius:10px;">
-                <h3>{{ c.cve }} - {{ c.severity }}</h3>
-                {% if c.score %}
-                    <p><b>CVSS:</b> {{ c.score }}</p>
+                {% if scan_type == "web" and results is mapping %}
+                    {% if results.error %}
+                        <p class="error-copy">{{ results.error }}</p>
+                    {% else %}
+                        <div class="generic-grid">
+                            <span><b>Final URL</b>{{ results.final_url }}</span>
+                            <span><b>Status</b>{{ results.status_code }}</span>
+                            <span><b>Server</b>{{ results.server or "Unknown" }}</span>
+                            <span><b>Powered By</b>{{ results.powered_by or "Unknown" }}</span>
+                        </div>
+                    {% endif %}
+                {% elif scan_type == "cve" %}
+                    {% if results %}
+                        <div class="details-list">
+                            {% for c in results %}
+                                <div class="detail-row static-row">
+                                    <span class="severity-tag severity-soft-{{ c.severity|lower }}">{{ c.severity }}</span>
+                                    <b>{{ c.cve }}</b>
+                                    <small>{{ c.description }}</small>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="muted-copy">No CVEs found.</p>
+                    {% endif %}
+                {% elif results %}
+                    <div class="details-list">
+                        {% for r in results %}
+                            <div class="detail-row static-row">
+                                <span class="severity-tag severity-soft-info">PORT</span>
+                                <b>{{ r.port }} / {{ r.service }}</b>
+                                <small>{{ r.product or "Unknown product" }}{% if r.version %} {{ r.version }}{% endif %}</small>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="muted-copy">No results found.</p>
                 {% endif %}
-                <p>{{ c.description }}</p>
-            </div>
-        {% endfor %}
-    {% else %}
-        <p style="color:green;">No CVEs found</p>
+            </section>
+        {% endif %}
     {% endif %}
-
-{% elif scan_type == "port" and results == [] %}
-    <section class="scan-error-panel warning">
-        <div class="scan-error-icon">
-            <i class="fas fa-circle-info"></i>
-        </div>
-        <div>
-            <span>No Reachable Ports</span>
-            <h3>{{ target }}</h3>
-            <p>No open ports were found in the scanned range.</p>
-        </div>
-    </section>
-
-{% elif results %}
-    {% for r in results %}
-        <div style="border:1px solid #ddd; margin:15px 0; padding:15px; border-radius:10px;">
-            <h3>
-                Port {{ r.port }}
-                ({{ r.service }}{% if r.version %} {{ r.version }}{% endif %})
-            </h3>
-
-            <p><b>Product:</b> {{ r.product or "Unknown" }}</p>
-            <p><b>Banner:</b> {{ r.banner or "No banner received" }}</p>
-
-            {% if r.cves %}
-                <ul>
-                {% for c in r.cves %}
-                    <li>
-                        <b>{{ c.cve }}</b>
-                        - {{ c.severity }}
-                        {% if c.score %}(CVSS {{ c.score }}){% endif %}
-                    </li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p style="color:green;">No vulnerabilities found</p>
-            {% endif %}
-        </div>
-    {% endfor %}
-
-{% else %}
-    <p>No results found.</p>
-{% endif %}
-{% endif %}
-    </section>
 </div>
 <script>
 const aiChat = document.querySelector(".ai-chat");

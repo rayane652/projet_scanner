@@ -289,6 +289,16 @@ def fetch_scan(scan_id, user_email):
     return scan
 
 
+def load_scan_result(scan):
+    if not scan or not scan.get("result_json"):
+        return None, None
+
+    try:
+        return json.loads(scan["result_json"]), None
+    except (TypeError, json.JSONDecodeError) as exc:
+        return None, f"Saved scan result could not be read: {exc}"
+
+
 def _empty_severity_counts():
     return {
         "critical": 0,
@@ -299,9 +309,109 @@ def _empty_severity_counts():
     }
 
 
+RISK_COLORS = {
+    "critical": "#7f1d1d",
+    "high": "#ef4444",
+    "medium": "#f97316",
+    "low": "#22c55e",
+    "info": "#64748b",
+}
+
+
+def _to_int(value, default=0):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return default
+
+
+def risk_level_from_score(score):
+    score = max(0, min(100, _to_int(score)))
+    if score >= 75:
+        return "CRITICAL"
+    if score >= 50:
+        return "HIGH"
+    if score >= 25:
+        return "MEDIUM"
+    return "LOW"
+
+
+def build_severity_breakdown(counts, include_info=False):
+    rows = [
+        {
+            "slug": "critical",
+            "key": "critical",
+            "label": "Critical",
+            "count": _to_int(counts.get("critical")),
+        },
+        {
+            "slug": "high",
+            "key": "high",
+            "label": "High",
+            "count": _to_int(counts.get("high")),
+        },
+        {
+            "slug": "medium",
+            "key": "medium",
+            "label": "Medium",
+            "count": _to_int(counts.get("medium")),
+        },
+        {
+            "slug": "low",
+            "key": "low",
+            "label": "Low",
+            "count": _to_int(counts.get("low")),
+        },
+    ]
+    if include_info:
+        rows.append({
+            "slug": "info",
+            "key": "info",
+            "label": "Info",
+            "count": _to_int(counts.get("info")),
+        })
+
+    total = sum(row["count"] for row in rows) or 1
+    for row in rows:
+        row["percent"] = int((row["count"] / total) * 100)
+
+    return rows
+
+
+def build_severity_ring_style(counts):
+    visible_counts = [
+        (item["slug"], item["count"])
+        for item in build_severity_breakdown(counts, include_info=True)
+        if item["count"] > 0
+    ]
+    if not visible_counts:
+        return f"conic-gradient({RISK_COLORS['low']} 0% 100%)"
+
+    total = sum(count for _, count in visible_counts)
+    current = 0
+    segments = []
+
+    for slug, count in visible_counts:
+        start = current / total * 100
+        current += count
+        end = current / total * 100
+        segments.append(f"{RISK_COLORS[slug]} {start:.2f}% {end:.2f}%")
+
+    return "conic-gradient(" + ", ".join(segments) + ")"
+
+
+def normalize_counts(counts):
+    counts = counts if isinstance(counts, dict) else {}
+    normalized = _empty_severity_counts()
+    for key in normalized:
+        normalized[key] = _to_int(counts.get(key))
+    return normalized
+
+
 def summarize_scan_payload(payload):
     summary = {
-        "risk_level": "INFO",
+        "risk_level": "LOW",
+        "risk_class": "low",
         "risk_score": 0,
         "severity_counts": _empty_severity_counts(),
         "findings": 0,
@@ -314,6 +424,8 @@ def summarize_scan_payload(payload):
             if not isinstance(item, dict):
                 continue
             for cve in item.get("cves") or [item]:
+                if not isinstance(cve, dict):
+                    continue
                 severity = str(cve.get("severity") or "").lower()
                 if severity in summary["severity_counts"]:
                     summary["severity_counts"][severity] += 1
@@ -324,38 +436,29 @@ def summarize_scan_payload(payload):
         return summary
     else:
         counts = payload.get("severity_counts") or {}
-        for key in summary["severity_counts"]:
-            summary["severity_counts"][key] = int(counts.get(key, 0) or 0)
+        summary["severity_counts"] = normalize_counts(counts)
 
         for finding in payload.get("findings") or []:
+            if not isinstance(finding, dict):
+                continue
             severity = str(finding.get("severity") or "").lower()
             if severity in summary["severity_counts"] and not counts:
                 summary["severity_counts"][severity] += 1
 
-        if payload.get("risk_level"):
-            summary["risk_level"] = str(payload.get("risk_level")).upper()
-
-        summary["risk_score"] = int(payload.get("risk_score") or 0)
+        summary["risk_score"] = _to_int(payload.get("risk_score"))
         payload_summary = payload.get("summary") or {}
-        summary["findings"] = int(
+        if not isinstance(payload_summary, dict):
+            payload_summary = {}
+        summary["findings"] = _to_int(
             payload_summary.get("findings")
             or payload_summary.get("scanned_items")
             or sum(summary["severity_counts"].values())
         )
-        summary["open_ports"] = int(payload_summary.get("open_ports") or 0)
-        summary["vulnerabilities"] = int(
+        summary["open_ports"] = _to_int(payload_summary.get("open_ports"))
+        summary["vulnerabilities"] = _to_int(
             payload_summary.get("vulnerabilities")
             or sum(summary["severity_counts"].values())
         )
-
-    if summary["severity_counts"]["critical"]:
-        summary["risk_level"] = "CRITICAL"
-    elif summary["severity_counts"]["high"]:
-        summary["risk_level"] = "HIGH"
-    elif summary["severity_counts"]["medium"]:
-        summary["risk_level"] = "MEDIUM"
-    elif summary["severity_counts"]["low"]:
-        summary["risk_level"] = "LOW"
 
     if not summary["risk_score"]:
         summary["risk_score"] = min(
@@ -365,52 +468,246 @@ def summarize_scan_payload(payload):
             + summary["severity_counts"]["medium"] * 8
             + summary["severity_counts"]["low"] * 3
         )
+    summary["risk_level"] = risk_level_from_score(summary["risk_score"])
+    summary["risk_class"] = summary["risk_level"].lower()
     return summary
+
+
+def decorate_result_payload(payload):
+    if not isinstance(payload, dict) or payload.get("error"):
+        return payload
+
+    summary = summarize_scan_payload(payload)
+    payload["risk_score"] = max(0, min(100, _to_int(summary["risk_score"])))
+    payload["risk_level"] = summary["risk_level"]
+    payload["risk_class"] = summary["risk_class"]
+    payload["severity_counts"] = summary["severity_counts"]
+    payload["severity_breakdown"] = build_severity_breakdown(
+        summary["severity_counts"],
+        include_info=True,
+    )
+    payload["severity_ring_style"] = build_severity_ring_style(summary["severity_counts"])
+    return payload
+
+
+def humanize_timestamp(value):
+    if not value:
+        return "Never"
+
+    try:
+        scanned_at = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(value)
+
+    if scanned_at.tzinfo is not None:
+        scanned_at = scanned_at.replace(tzinfo=None)
+
+    seconds = max(0, int((datetime.utcnow() - scanned_at).total_seconds()))
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        minutes = seconds // 60
+        return f"{minutes} min ago"
+    if seconds < 86400:
+        hours = seconds // 3600
+        return f"{hours}h ago"
+    if seconds < 604800:
+        days = seconds // 86400
+        return f"{days}d ago"
+    return scanned_at.strftime("%b %d, %Y")
+
+
+def infer_online_status(scan, payload):
+    if not scan or scan.get("status") != "done" or payload is None:
+        return False
+
+    if isinstance(payload, list):
+        return any(isinstance(item, dict) and item.get("port") for item in payload)
+
+    if not isinstance(payload, dict) or payload.get("error"):
+        return False
+
+    if payload.get("status_code") or payload.get("final_url"):
+        return True
+
+    summary = payload.get("summary") or {}
+    if isinstance(summary, dict) and (
+        _to_int(summary.get("open_ports"))
+        or _to_int(summary.get("services"))
+        or _to_int(summary.get("web_paths"))
+    ):
+        return True
+
+    raw_web = ((payload.get("raw") or {}).get("web") or {})
+    if isinstance(raw_web, dict) and not raw_web.get("error") and (
+        raw_web.get("status_code") or raw_web.get("final_url")
+    ):
+        return True
+
+    return False
+
+
+def extract_os_badge(payload):
+    profile = payload.get("system_profile") if isinstance(payload, dict) else {}
+    profile = profile if isinstance(profile, dict) else {}
+    family = profile.get("family") or ""
+    name = profile.get("name") or ""
+    text_parts = [family, name]
+    detected_ports = set()
+
+    if isinstance(payload, dict):
+        raw = payload.get("raw") or {}
+        ports = raw.get("ports") if isinstance(raw, dict) else []
+        if isinstance(ports, list):
+            detected_ports.update(
+                port.get("port") for port in ports if isinstance(port, dict)
+            )
+            text_parts.extend(str(port.get("banner") or "") for port in ports if isinstance(port, dict))
+            text_parts.extend(str(port.get("service") or "") for port in ports if isinstance(port, dict))
+        raw_web = raw.get("web") if isinstance(raw, dict) else {}
+        if isinstance(raw_web, dict):
+            text_parts.extend([
+                str(raw_web.get("server") or ""),
+                str(raw_web.get("powered_by") or ""),
+                " ".join(raw_web.get("technologies") or [])
+                if isinstance(raw_web.get("technologies"), list)
+                else "",
+            ])
+        text_parts.extend([
+            str(payload.get("server") or ""),
+            " ".join(payload.get("technologies") or []) if isinstance(payload.get("technologies"), list) else "",
+        ])
+    elif isinstance(payload, list):
+        detected_ports.update(
+            item.get("port") for item in payload if isinstance(item, dict)
+        )
+        text_parts.extend(str(item.get("banner") or "") for item in payload if isinstance(item, dict))
+        text_parts.extend(str(item.get("service") or "") for item in payload if isinstance(item, dict))
+
+    combined = " ".join(text_parts).lower()
+    detected_ports.discard(None)
+
+    if 5555 in detected_ports:
+        return {"label": "Android", "class": "android", "icon": "fa-brands fa-android"}
+    if {135, 139, 445, 3389, 5985, 5986} & detected_ports:
+        return {"label": "Windows", "class": "windows", "icon": "fa-brands fa-windows"}
+    if "windows" in combined or "microsoft" in combined or "rdp" in combined or "smb" in combined:
+        return {"label": "Windows", "class": "windows", "icon": "fa-brands fa-windows"}
+    if "android" in combined or "adb" in combined:
+        return {"label": "Android", "class": "android", "icon": "fa-brands fa-android"}
+    if "ubuntu" in combined:
+        return {"label": "Ubuntu", "class": "linux", "icon": "fa-brands fa-linux"}
+    if "debian" in combined:
+        return {"label": "Debian", "class": "linux", "icon": "fa-brands fa-linux"}
+    if "kali" in combined:
+        return {"label": "Kali", "class": "linux", "icon": "fa-brands fa-linux"}
+    if "metasploitable" in combined:
+        return {"label": "Metasploitable", "class": "linux", "icon": "fa-brands fa-linux"}
+    if "linux" in combined or "unix" in combined or "openssh" in combined or "ssh" in combined:
+        return {"label": "Linux", "class": "linux", "icon": "fa-brands fa-linux"}
+    if {21, 22, 25, 111, 2049, 5432, 6379} & detected_ports:
+        return {"label": "Linux", "class": "linux", "icon": "fa-brands fa-linux"}
+    return {"label": "Unknown", "class": "unknown", "icon": "fa-solid fa-circle-question"}
+
+
+def decorate_asset(asset):
+    asset["risk_score"] = max(0, min(100, _to_int(asset.get("risk_score"))))
+    asset["risk_level"] = risk_level_from_score(asset["risk_score"])
+    asset["risk_class"] = asset["risk_level"].lower()
+    asset["risk_label"] = f"{asset['risk_level']} RISK"
+    asset["last_scan_human"] = humanize_timestamp(asset.get("last_seen"))
+
+    counts = normalize_counts(asset.get("severity_counts"))
+    asset["severity_counts"] = counts
+    asset["severity_rows"] = []
+    for row in build_severity_breakdown(counts):
+        count = row["count"]
+        row["width"] = min(100, count * 25) if count else 0
+        asset["severity_rows"].append(row)
+
+    return asset
+
+
+def build_asset_page_stats(assets):
+    total_assets = len(assets)
+    return {
+        "total_assets": total_assets,
+        "online_assets": sum(1 for asset in assets if asset.get("is_online")),
+        "high_risk_assets": sum(
+            1 for asset in assets if asset.get("risk_level") in ("HIGH", "CRITICAL")
+        ),
+        "average_risk_score": round(
+            sum(asset.get("risk_score", 0) for asset in assets) / total_assets,
+            1,
+        ) if total_assets else 0,
+        "total_scans": sum(asset.get("scan_count", 0) for asset in assets),
+    }
 
 
 def fetch_user_assets(user_email):
     scans = fetch_user_scans(user_email)
     assets_by_key = {}
 
-    for scan in scans:
-        key = (scan.get("machine_name") or scan.get("target") or "").strip().lower(), scan.get("target")
+    for scan_item in scans:
+        key = (
+            (scan_item.get("machine_name") or scan_item.get("target") or "").strip().lower(),
+            scan_item.get("target"),
+        )
         asset = assets_by_key.setdefault(key, {
-            "name": scan.get("machine_name") or scan.get("target") or "Unnamed machine",
-            "target": scan.get("target"),
+            "name": scan_item.get("machine_name") or scan_item.get("target") or "Unnamed machine",
+            "target": scan_item.get("target"),
             "scan_count": 0,
-            "latest_scan_id": scan.get("id"),
-            "latest_status": scan.get("status"),
-            "latest_scan_type": scan.get("scan_type"),
-            "last_seen": scan.get("created_at"),
-            "risk_level": "INFO",
+            "latest_scan_id": scan_item.get("id"),
+            "latest_status": scan_item.get("status"),
+            "latest_scan_type": scan_item.get("scan_type"),
+            "last_seen": scan_item.get("completed_at") or scan_item.get("created_at"),
+            "risk_level": "LOW",
+            "risk_class": "low",
             "risk_score": 0,
             "severity_counts": _empty_severity_counts(),
             "findings": 0,
             "open_ports": 0,
             "vulnerabilities": 0,
+            "os_label": "Unknown",
+            "os_class": "unknown",
+            "os_icon": "fa-solid fa-circle-question",
+            "is_online": False,
+            "_has_result_summary": False,
         })
         asset["scan_count"] += 1
 
         if asset["scan_count"] == 1:
-            asset["latest_scan_id"] = scan.get("id")
-            asset["latest_status"] = scan.get("status")
-            asset["latest_scan_type"] = scan.get("scan_type")
-            asset["last_seen"] = scan.get("created_at")
+            asset["latest_scan_id"] = scan_item.get("id")
+            asset["latest_status"] = scan_item.get("status")
+            asset["latest_scan_type"] = scan_item.get("scan_type")
+            asset["last_seen"] = scan_item.get("completed_at") or scan_item.get("created_at")
 
-        full_scan = fetch_scan(scan["id"], user_email)
+        full_scan = fetch_scan(scan_item["id"], user_email)
         if not full_scan or not full_scan.get("result_json"):
             continue
-        try:
-            payload = json.loads(full_scan["result_json"])
-        except json.JSONDecodeError:
+        payload, _ = load_scan_result(full_scan)
+        if payload is None:
             continue
-        asset.update(summarize_scan_payload(payload))
+        if not asset["_has_result_summary"]:
+            payload = decorate_result_payload(payload)
+            os_badge = extract_os_badge(payload)
+            asset.update(summarize_scan_payload(payload))
+            asset["os_label"] = os_badge["label"]
+            asset["os_class"] = os_badge["class"]
+            asset["os_icon"] = os_badge["icon"]
+            asset["is_online"] = infer_online_status(full_scan, payload)
+            asset["_has_result_summary"] = True
+
+    for asset in assets_by_key.values():
+        decorate_asset(asset)
+        asset.pop("_has_result_summary", None)
 
     return sorted(
         assets_by_key.values(),
         key=lambda item: (item.get("last_seen") or ""),
         reverse=True,
     )
+
 def build_dashboard_data(user_email):
     scans = fetch_user_scans(user_email)
     assets = fetch_user_assets(user_email)
@@ -438,9 +735,8 @@ def build_dashboard_data(user_email):
         if not full_scan or not full_scan.get("result_json"):
             continue
 
-        try:
-            payload = json.loads(full_scan["result_json"])
-        except:
+        payload, _ = load_scan_result(full_scan)
+        if payload is None:
             continue
 
         summary = summarize_scan_payload(payload)
@@ -501,7 +797,7 @@ def dashboard():
 
 # ================= SCAN PAGE =================
 @app.route("/scan")
-def scan():
+def scan_page():
     if "user" not in session:
         return redirect(url_for("home"))
 
@@ -569,19 +865,20 @@ def run_scan():
 
 # ================= ASSETS =================
 @app.route("/asset")
-def asset():
+def asset_page():
     if "user" not in session:
         return redirect(url_for("home"))
-
     ensure_scans_table()
     user_email = session["user"]["email"]
     scans = fetch_user_scans(user_email)
     assets = fetch_user_assets(user_email)
+    asset_stats = build_asset_page_stats(assets)
     return render_template(
         "asset.html",
         user=session["user"],
         active="asset",
         assets=assets,
+        asset_stats=asset_stats,
         scans=scans,
     )
 
@@ -611,6 +908,7 @@ def result():
         target = selected_scan["target"]
         scan_type = selected_scan["scan_type"]
         scan_error = selected_scan.get("error_message")
+<<<<<<< HEAD
         if selected_scan.get("result_json"):
             result_payload = json.loads(selected_scan["result_json"])
             if (
@@ -620,6 +918,16 @@ def result():
                 and not result_payload.get("ai")
             ):
                 result_payload["ai"] = build_ai_analysis(result_payload)
+=======
+        result_payload, result_error = load_scan_result(selected_scan)
+        if result_error:
+            result_payload = {
+                "error": "Unreadable saved result",
+                "message": result_error,
+            }
+        else:
+            result_payload = decorate_result_payload(result_payload)
+>>>>>>> 8e27e82 (update)
 
     return render_template(
         "result.html",
@@ -638,31 +946,18 @@ def result():
 def delete_scan(scan_id):
     if "user" not in session:
         return redirect(url_for("home"))
-    ensure_scans_table()
 
     user_email = session["user"]["email"]
-    
-    # Delete the scan
+
     conn = get_db_connection()
     conn.execute(
         "DELETE FROM scans WHERE id = ? AND user_email = ?",
         (scan_id, user_email),
     )
-    any_scans = conn.execute("SELECT COUNT(*) FROM scans").fetchone()[0]
-    if any_scans == 0:
-        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'scans'")
     conn.commit()
     conn.close()
 
-    # Get remaining scans
-    remaining_scans = fetch_user_scans(user_email)
-    
-    # Redirect to the first scan (most recent) if it exists
-    if remaining_scans:
-        return redirect(url_for("result", scan_id=remaining_scans[0]["id"]))
-    else:
-        return redirect(url_for("result"))
-
+    return redirect(url_for("asset_page"))
 
 @app.route("/scan/<int:scan_id>/ai-chat", methods=["POST"])
 def ai_chat(scan_id):

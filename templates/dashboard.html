@@ -31,7 +31,7 @@
         </div>
 
         <div class="welcome-right">
-            <a href="{{ url_for('scan') }}" class="main-btn">
+            <a href="{{ url_for('scan_page') }}" class="main-btn">
                 Start Scan
             </a>
         </div>
@@ -107,13 +107,9 @@
                     <td>{{ asset.vulnerabilities }}</td>
 
                     <td>
-                        {% if asset.risk_level == "CRITICAL" %}
-                            <span class="badge critical">At Risk</span>
-                        {% elif asset.risk_level == "HIGH" %}
-                            <span class="badge high">Warning</span>
-                        {% else %}
-                            <span class="badge safe">Secure</span>
-                        {% endif %}
+                        <span class="badge {{ asset.risk_class }}">
+                            {{ asset.risk_level.title() }} Risk
+                        </span>
                     </td>
                 </tr>
             {% endfor %}
@@ -179,7 +175,7 @@ new Chart(document.getElementById("donutChart"), {
         "#7f1d1d", // Critical (very dark red)
         "#ef4444", // High (red)
         "#f97316", // Medium (orange)
-        "#facc15"  // Low (yellow)
+        "#22c55e"  // Low (green)
     ],
 
     borderWidth: 0
