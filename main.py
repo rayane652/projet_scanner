@@ -154,7 +154,11 @@ def execute_scan(scan_type, scan_mode, target, form_data):
                 "message": "Vulnix could not resolve this target to an IP address.",
             }
 
-        port_results = run_vuln_scan(ip)
+        port_results = run_vuln_scan(
+            ip,
+            scan_method=form_data.get("tcp_scan_method") or "connect",
+            include_udp=bool(form_data.get("include_udp")),
+        )
         web_result = scan_website(target)
         auth_result = None
 
@@ -194,7 +198,11 @@ def execute_scan(scan_type, scan_mode, target, form_data):
                 "target": target,
                 "message": "Vulnix could not resolve this target to an IP address.",
             }
-        port_results = run_vuln_scan(ip)
+        port_results = run_vuln_scan(
+            ip,
+            scan_method=form_data.get("tcp_scan_method") or "connect",
+            include_udp=bool(form_data.get("include_udp")),
+        )
         if not port_results:
             return {
                 "error": "No reachable ports detected",
@@ -524,6 +532,8 @@ def run_scan():
         "auth_type": request.form.get("auth_type"),
         "auth_username": request.form.get("auth_username"),
         "auth_password": request.form.get("auth_password"),
+        "tcp_scan_method": request.form.get("tcp_scan_method", "connect"),
+        "include_udp": request.form.get("include_udp") in {"1", "on", "true"},
     }
 
     conn = get_db_connection()

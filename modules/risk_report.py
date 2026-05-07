@@ -141,11 +141,12 @@ def _port_findings(port_results):
 
     for result in port_results or []:
         port = result.get("port")
+        protocol = (result.get("protocol") or "tcp").upper()
         service = result.get("service") or "unknown"
         product = result.get("product") or service
         version = result.get("version") or ""
         banner = result.get("banner") or ""
-        asset = f"{service}:{port}"
+        asset = f"{protocol.lower()}/{service}:{port}"
 
         if port in SENSITIVE_PORTS:
             severity, name, recommendation = SENSITIVE_PORTS[port]
@@ -153,12 +154,13 @@ def _port_findings(port_results):
                 severity,
                 name,
                 asset,
-                f"Port {port}/{service} is open.",
+                f"{protocol} port {port}/{service} is open.",
                 recommendation,
                 banner,
                 "Exposed Service",
                 metadata={
                     "port": port,
+                    "protocol": protocol,
                     "service": service,
                     "product": product,
                     "version": version,
@@ -176,6 +178,7 @@ def _port_findings(port_results):
                 "Service Inventory",
                 metadata={
                     "port": port,
+                    "protocol": protocol,
                     "service": service,
                     "product": product,
                     "version": version,
@@ -208,6 +211,7 @@ def _port_findings(port_results):
                 }],
                 metadata={
                     "port": port,
+                    "protocol": protocol,
                     "service": service,
                     "product": product,
                     "version": version,
@@ -494,6 +498,7 @@ def _system_profile(target, open_ports, web_result=None, auth_result=None):
     banners = " ".join(port.get("banner", "") for port in open_ports).lower()
     services = {port.get("service") for port in open_ports}
     ports = {port.get("port") for port in open_ports}
+    os_hints = [port.get("os_hint") for port in open_ports if port.get("os_hint")]
 
     if not os_name:
         if 5555 in ports or "android" in banners or "adb" in services:
@@ -506,6 +511,16 @@ def _system_profile(target, open_ports, web_result=None, auth_result=None):
             os_name = "Windows host likely"
             confidence = "Medium"
             evidence.append("Windows administration ports detected")
+        elif os_hints and any("Windows" in hint for hint in os_hints):
+            family = "Windows"
+            os_name = "Windows host likely"
+            confidence = "Medium"
+            evidence.append(f"TCP/IP fingerprint: {os_hints[0]}")
+        elif os_hints and any("Linux" in hint or "Unix" in hint for hint in os_hints):
+            family = "Linux/Unix"
+            os_name = "Linux/Unix host likely"
+            confidence = "Medium"
+            evidence.append(f"TCP/IP fingerprint: {os_hints[0]}")
         elif (
             {"ssh", "ftp", "smtp", "nfs", "postgresql", "redis"} & services
             or "openssh" in banners
@@ -535,6 +550,8 @@ def _system_profile(target, open_ports, web_result=None, auth_result=None):
         os_name = "Debian Linux likely"
         family = "Debian Linux"
         evidence.append("Debian banner")
+    elif os_hints:
+        evidence.append(f"TCP/IP fingerprint: {os_hints[0]}")
     web_headers = (web_result or {}).get("headers", {})
     server = web_headers.get("Server") or (web_result or {}).get("server") or ""
 
@@ -555,6 +572,9 @@ def _open_ports(port_results):
 
     for result in port_results or []:
         port = result.get("port")
+        protocol = result.get("protocol") or "tcp"
+        state = result.get("state") or "open"
+        scan_method = result.get("scan_method") or "tcp_connect"
         service = result.get("service") or "unknown"
         product = result.get("product") or ""
         version = result.get("version") or ""
@@ -565,6 +585,13 @@ def _open_ports(port_results):
 
         ports.append({
             "port": port,
+            "protocol": protocol,
+            "state": state,
+            "scan_method": scan_method,
+            "reason": result.get("reason") or "",
+            "ttl": result.get("ttl"),
+            "tcp_window": result.get("tcp_window"),
+            "os_hint": result.get("os_hint") or "",
             "service": service,
             "product": product,
             "version": version,
@@ -572,7 +599,7 @@ def _open_ports(port_results):
             "severity": severity,
             "cve_count": len(cves),
             "cves": cves,
-            "description": f"TCP port {port} is open and mapped to {service}.",
+            "description": f"{protocol.upper()} port {port} is {state} and mapped to {service}.",
             "recommendation": (
                 SENSITIVE_PORTS.get(port, ("", "", ""))[2]
                 or "Keep this service patched and restrict access when possible."
@@ -720,7 +747,7 @@ def _scanned_items(
         items.append({
             "category": "Port",
             "severity": port["severity"],
-            "title": f"Port {port['port']} / {port['service']}",
+            "title": f"{(port.get('protocol') or 'tcp').upper()} Port {port['port']} / {port['service']}",
             "subtitle": f"{port.get('product') or 'Unknown product'} {port.get('version') or ''}".strip(),
             "description": port["description"],
             "evidence": port.get("banner") or "No banner received.",
@@ -735,7 +762,14 @@ def _scanned_items(
                 for cve in port.get("cves") or []
             ],
             "details": [
+                ("Protocol", (port.get("protocol") or "tcp").upper()),
                 ("Port", port.get("port")),
+                ("State", port.get("state") or "open"),
+                ("Scan method", port.get("scan_method") or "tcp_connect"),
+                ("Detection reason", port.get("reason") or "N/A"),
+                ("OS hint", port.get("os_hint") or "Unknown"),
+                ("TTL", port.get("ttl") or "Unknown"),
+                ("TCP window", port.get("tcp_window") or "Unknown"),
                 ("Service", port.get("service")),
                 ("Product", port.get("product") or "Unknown"),
                 ("Version", port.get("version") or "Unknown"),
@@ -948,6 +982,10 @@ def build_security_report(
     services = [
         {
             "port": port.get("port"),
+            "protocol": port.get("protocol") or "tcp",
+            "state": port.get("state") or "open",
+            "scan_method": port.get("scan_method") or "tcp_connect",
+            "os_hint": port.get("os_hint") or "",
             "service": port.get("service") or "unknown",
             "product": port.get("product") or "",
             "version": port.get("version") or "",

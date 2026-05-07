@@ -3,8 +3,12 @@ from modules.cve_scanner import search_cves
 from modules.service_detector import detect_service_and_version
 
 
-def run_vuln_scan(target):
-    ports = scan_ports(target)
+def run_vuln_scan(target, scan_method="connect", include_udp=False):
+    ports = scan_ports(
+        target,
+        scan_method=scan_method,
+        include_udp=include_udp,
+    )
 
     final_results = []
 
@@ -13,9 +17,10 @@ def run_vuln_scan(target):
 
     for p in ports:
         port = p["port"]
+        protocol = p.get("protocol") or "tcp"
         banner = p.get("banner", "")
 
-        service, version, product = detect_service_and_version(port, banner)
+        service, version, product = detect_service_and_version(port, banner, protocol)
 
         cves = []
 
@@ -24,10 +29,17 @@ def run_vuln_scan(target):
 
         final_results.append({
             "port": port,
+            "protocol": protocol,
+            "state": p.get("state") or "open",
             "service": service,
             "version": version,
             "product": product,
             "banner": banner,
+            "scan_method": p.get("scan_method") or "tcp_connect",
+            "reason": p.get("reason") or "",
+            "ttl": p.get("ttl"),
+            "tcp_window": p.get("tcp_window"),
+            "os_hint": p.get("os_hint") or "",
             "cves": cves
         })
 

@@ -68,6 +68,34 @@
                         </div>
                     </label>
 
+                    <div class="engine-box full-row">
+                        <div class="engine-header">
+                            <span><i class="fas fa-network-wired"></i> Scan Engine</span>
+                            <label class="engine-toggle">
+                                <input type="checkbox" name="include_udp" value="1">
+                                <span>UDP</span>
+                            </label>
+                        </div>
+
+                        <div class="grid-2 engine-grid">
+                            <label class="field">
+                                <span>TCP Method</span>
+                                <div class="input-box">
+                                    <i class="fas fa-wave-square left-icon"></i>
+                                    <select name="tcp_scan_method">
+                                        <option value="connect">TCP Connect</option>
+                                        <option value="syn">SYN Scan</option>
+                                    </select>
+                                </div>
+                            </label>
+
+                            <div class="engine-note">
+                                <b>Fingerprinting</b>
+                                <span>Service banners, version detection and OS hints.</span>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
 
                 <!-- CREDENTIALS -->
@@ -157,7 +185,7 @@
                 <div class="icon-box orange"><i class="fas fa-database"></i></div>
                 <div class="side-text">
                     <span>Data Collected</span>
-                    <b>Vulnerabilities, Ports,<br>Services, CVEs</b>
+                    <b>Ports, UDP, Services,<br>Versions, OS, CVEs</b>
                 </div>
             </div>
         </div>
@@ -169,6 +197,8 @@
 
             <div class="side2-list">
                 <div class="side2-item"><i class="fas fa-check-circle"></i><span>Discovers open ports and services</span></div>
+                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Runs TCP Connect, optional SYN and UDP probes</span></div>
+                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Fingerprints service versions and OS hints</span></div>
                 <div class="side2-item"><i class="fas fa-check-circle"></i><span>Detects known vulnerabilities</span></div>
                 <div class="side2-item"><i class="fas fa-check-circle"></i><span>Analyzes configurations</span></div>
                 <div class="side2-item"><i class="fas fa-check-circle"></i><span>Checks for web vulnerabilities</span></div>

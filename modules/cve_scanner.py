@@ -3,9 +3,19 @@ import requests
 
 PRODUCT_ALIASES = {
     "apache": ("apache", "apache http server", "httpd"),
+    "nginx": ("nginx",),
+    "openssh": ("openssh", "openbsd openssh"),
+    "vsftpd": ("vsftpd", "vsftp"),
+    "postfix": ("postfix",),
+    "mysql": ("mysql",),
+    "mariadb": ("mariadb",),
     "microsoft iis": ("microsoft iis", "internet information services", "iis"),
     "microsoft sql server": ("microsoft sql server", "sql server", "mssql"),
     "postgresql": ("postgresql", "postgres"),
+    "redis": ("redis",),
+    "mongodb": ("mongodb",),
+    "elasticsearch": ("elasticsearch", "elastic search"),
+    "vnc": ("vnc", "virtual network computing"),
 }
 
 

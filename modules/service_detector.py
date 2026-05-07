@@ -8,6 +8,9 @@ PORT_SERVICES = {
     23: "telnet",
     25: "smtp",
     53: "dns",
+    67: "dhcp",
+    68: "dhcp",
+    69: "tftp",
     80: "http",
     110: "pop3",
     111: "rpcbind",
@@ -19,6 +22,10 @@ PORT_SERVICES = {
     445: "smb",
     465: "smtps",
     587: "smtp",
+    123: "ntp",
+    137: "netbios-ns",
+    161: "snmp",
+    500: "isakmp",
     993: "imaps",
     995: "pop3s",
     1433: "mssql",
@@ -35,14 +42,18 @@ PORT_SERVICES = {
     8080: "http-proxy",
     8443: "https-alt",
     9200: "elasticsearch",
+    1900: "ssdp",
+    5353: "mdns",
     5555: "adb",
     27017: "mongodb",
 }
 
 PORT_PRODUCTS = {
     1433: "microsoft sql server",
+    1521: "oracle",
     3306: "mysql",
     5432: "postgresql",
+    5900: "vnc",
     6379: "redis",
     9200: "elasticsearch",
     27017: "mongodb",
@@ -56,15 +67,20 @@ PRODUCT_PATTERNS = [
     ("http", r"microsoft-iis/?\s*([\w\.\-]+)?", "microsoft iis"),
     ("http", r"apache-coyote/?\s*([\w\.\-]+)?", "apache tomcat"),
     ("ssh", r"openssh[_\s-]*([\w\.\-]+)?", "openssh"),
+    ("ssh", r"ssh-\d\.\d-openssh[_\s-]*([\w\.\-]+)?", "openssh"),
     ("ftp", r"vsftpd\s*([\w\.\-]+)?", "vsftpd"),
     ("ftp", r"proftpd\s*([\w\.\-]+)?", "proftpd"),
-    ("smtp", r"postfix", "postfix"),
+    ("smtp", r"postfix\s*([\w\.\-]+)?", "postfix"),
     ("smtp", r"exim\s*([\w\.\-]+)?", "exim"),
+    ("smtp", r"sendmail\s*([\w\.\-]+)?", "sendmail"),
     ("mysql", r"mysql\s*([\w\.\-]+)?", "mysql"),
     ("mysql", r"mariadb\s*([\w\.\-]+)?", "mariadb"),
     ("postgresql", r"postgresql\s*([\w\.\-]+)?", "postgresql"),
     ("redis", r"redis\s*([\w\.\-]+)?", "redis"),
     ("mongodb", r"mongodb\s*([\w\.\-]+)?", "mongodb"),
+    ("vnc", r"rfb\s*([\w\.\-]+)?", "vnc"),
+    ("snmp", r"snmp", "snmp"),
+    ("dns", r"bind\s*([\w\.\-]+)?", "bind"),
 ]
 
 
@@ -74,7 +90,7 @@ def _clean_version(version):
     return version.strip(" /;,_-()[]")
 
 
-def detect_service_and_version(port, banner):
+def detect_service_and_version(port, banner, protocol="tcp"):
     banner_text = banner or ""
     banner_lower = banner_text.lower()
     guessed_service = PORT_SERVICES.get(port, "unknown")
@@ -93,6 +109,12 @@ def detect_service_and_version(port, banner):
         return "smtp", "", "smtp"
     if "http/" in banner_lower or "server:" in banner_lower:
         return "http", "", "http"
+    if protocol == "udp" and port == 53:
+        return "dns", "", ""
+    if protocol == "udp" and port == 123:
+        return "ntp", "", ""
+    if protocol == "udp" and port == 161:
+        return "snmp", "", ""
 
     product = PORT_PRODUCTS.get(port, "")
     return guessed_service, "", product

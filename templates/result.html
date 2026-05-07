@@ -330,10 +330,11 @@
                         <div class="compact-item">
                             <span class="severity-dot severity-{{ port.severity|lower }}"></span>
                             <div>
-                                <b>{{ port.port }} / {{ port.service }}</b>
+                                <b>{{ (port.protocol or "tcp")|upper }} {{ port.port }} / {{ port.service }}</b>
                                 <small>
                                     {{ port.product or "Unknown product" }}
                                     {% if port.version %} {{ port.version }}{% endif %}
+                                    - {{ port.scan_method or "tcp_connect" }}
                                     - {{ port.cve_count }} CVE(s)
                                 </small>
                             </div>
