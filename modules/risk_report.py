@@ -7,6 +7,8 @@ SEVERITY_ORDER = {
     "UNKNOWN": 5,
 }
 
+from modules.ai_analyst import build_ai_analysis, enrich_scanned_items
+
 SEVERITY_POINTS = {
     "CRITICAL": 25,
     "HIGH": 16,
@@ -937,6 +939,7 @@ def build_security_report(
         web_item_findings,
         auth_result,
     )
+    enrich_scanned_items(scanned_items)
     counts = _counts_from_items(scanned_items)
     score = min(
         100,
@@ -963,7 +966,7 @@ def build_security_report(
         if finding.get("recommendation")
     ])[:6]
 
-    return {
+    report = {
         "target": target,
         "scan_mode": scan_mode,
         "scan_mode_label": (
@@ -1003,3 +1006,5 @@ def build_security_report(
             "cves": cve_results,
         },
     }
+    report["ai"] = build_ai_analysis(report)
+    return report

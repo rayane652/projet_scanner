@@ -6,12 +6,13 @@ import threading
 from datetime import datetime
 from urllib.parse import urlencode
 
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import requests
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.serving import WSGIRequestHandler
 
 # 🔥 IMPORT YOUR MODULES
+from modules.ai_analyst import answer_scan_question, build_ai_analysis
 from modules.auth_scanner import run_authenticated_checks
 from modules.web_scanner import scan_website
 from modules.cve_scanner import search_cves
@@ -602,6 +603,13 @@ def result():
         scan_error = selected_scan.get("error_message")
         if selected_scan.get("result_json"):
             result_payload = json.loads(selected_scan["result_json"])
+            if (
+                scan_type == "security"
+                and isinstance(result_payload, dict)
+                and not result_payload.get("error")
+                and not result_payload.get("ai")
+            ):
+                result_payload["ai"] = build_ai_analysis(result_payload)
 
     return render_template(
         "result.html",
@@ -644,6 +652,29 @@ def delete_scan(scan_id):
         return redirect(url_for("result", scan_id=remaining_scans[0]["id"]))
     else:
         return redirect(url_for("result"))
+
+
+@app.route("/scan/<int:scan_id>/ai-chat", methods=["POST"])
+def ai_chat(scan_id):
+    if "user" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    selected_scan = fetch_scan(scan_id, session["user"]["email"])
+    if not selected_scan or not selected_scan.get("result_json"):
+        return jsonify({"error": "Scan result not found"}), 404
+
+    try:
+        payload = json.loads(selected_scan["result_json"])
+    except json.JSONDecodeError:
+        return jsonify({"error": "Invalid scan result"}), 400
+
+    if not isinstance(payload, dict):
+        return jsonify({
+            "answer": "AI chat is available for Security Scan reports only."
+        })
+
+    question = (request.get_json(silent=True) or {}).get("question", "")
+    return jsonify({"answer": answer_scan_question(payload, question)})
 
 
 # ================= SIGNUP =================

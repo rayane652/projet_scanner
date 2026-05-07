@@ -125,6 +125,86 @@
             </div>
         </div>
 
+        {% if results.ai %}
+            <div class="report-panel ai-panel">
+                <div class="ai-panel-head">
+                    <div>
+                        <span>AI Analyst</span>
+                        <h3>Scan Intelligence</h3>
+                    </div>
+                    <i class="fas fa-wand-magic-sparkles"></i>
+                </div>
+
+                <p class="ai-summary">{{ results.ai.summary }}</p>
+
+                {% if results.ai.tags %}
+                    <div class="ai-tag-row">
+                    {% for tag in results.ai.tags %}
+                        <span>{{ tag.tag }} <b>{{ tag.count }}</b></span>
+                    {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="ai-grid">
+                    <div>
+                        <h4>Remediation Plan</h4>
+                        <ol class="ai-plan">
+                        {% for step in results.ai.remediation_plan %}
+                            <li>
+                                <b>{{ step.severity }} - {{ step.title }}</b>
+                                <span>{{ step.action }}</span>
+                            </li>
+                        {% endfor %}
+                        </ol>
+                    </div>
+
+                    <div>
+                        <h4>Attack Paths</h4>
+                        <div class="ai-path-list">
+                        {% for path in results.ai.attack_paths %}
+                            <div>
+                                <b>{{ path.name }}</b>
+                                <span>{{ path.path }}</span>
+                            </div>
+                        {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ai-grid">
+                    <div>
+                        <h4>False Positive Review</h4>
+                        <div class="ai-path-list">
+                        {% for item in results.ai.false_positive_review %}
+                            <div>
+                                <b>{{ item.title }}</b>
+                                <span>{{ item.reason }}</span>
+                            </div>
+                        {% endfor %}
+                        </div>
+                    </div>
+
+                    {% if selected_scan %}
+                        <div class="ai-chat" data-scan-id="{{ selected_scan.id }}">
+                            <h4>Chat With This Scan</h4>
+                            <div class="ai-suggestions">
+                            {% for question in results.ai.suggested_questions %}
+                                <button type="button" data-question="{{ question }}">{{ question }}</button>
+                            {% endfor %}
+                            </div>
+                            <div class="ai-chat-log" id="aiChatLog">
+                                <div class="ai-message">Ask about risk, CVEs, ports, false positives, OS, or remediation.</div>
+                            </div>
+                            <div class="ai-chat-form">
+                                <input id="aiQuestion" type="text" placeholder="Ask about this scan">
+                                <button type="button" id="aiAskButton">Ask</button>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
         {% if results.authentication %}
             <div class="report-panel auth-panel">
                 <h3>Credentialed Checks</h3>
@@ -355,6 +435,26 @@
                                     {% endfor %}
                                 </div>
 
+                                {% if item.ai %}
+                                    <div class="ai-item-box">
+                                        <h4>AI Explanation</h4>
+                                        <p>{{ item.ai.explanation }}</p>
+                                        <h4>Impact</h4>
+                                        <p>{{ item.ai.impact }}</p>
+                                        <h4>Suggested Fix</h4>
+                                        <p>{{ item.ai.fix }}</p>
+                                        <div class="ai-tag-row compact">
+                                        {% for tag in item.ai.tags %}
+                                            <span>{{ tag }}</span>
+                                        {% endfor %}
+                                        </div>
+                                        <p class="fp-note">
+                                            False positive likelihood: <b>{{ item.ai.false_positive }}</b>.
+                                            {{ item.ai.false_positive_reason }}
+                                        </p>
+                                    </div>
+                                {% endif %}
+
                                 {% if item.cves %}
                                     <h4>CVEs</h4>
                                     <div class="cve-list">
@@ -528,4 +628,45 @@
 {% endif %}
     </section>
 </div>
+<script>
+const aiChat = document.querySelector(".ai-chat");
+if (aiChat) {
+    const scanId = aiChat.dataset.scanId;
+    const log = document.getElementById("aiChatLog");
+    const input = document.getElementById("aiQuestion");
+    const button = document.getElementById("aiAskButton");
+
+    function appendMessage(text, type) {
+        const item = document.createElement("div");
+        item.className = "ai-message " + (type || "");
+        item.textContent = text;
+        log.appendChild(item);
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function askAi(question) {
+        const value = (question || input.value || "").trim();
+        if (!value) return;
+        appendMessage(value, "user");
+        input.value = "";
+
+        fetch(`/scan/${scanId}/ai-chat`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({question: value})
+        })
+        .then(response => response.json())
+        .then(data => appendMessage(data.answer || data.error || "No answer returned.", "bot"))
+        .catch(() => appendMessage("AI chat could not answer this question.", "bot"));
+    }
+
+    button?.addEventListener("click", () => askAi());
+    input?.addEventListener("keydown", event => {
+        if (event.key === "Enter") askAi();
+    });
+    aiChat.querySelectorAll("[data-question]").forEach(item => {
+        item.addEventListener("click", () => askAi(item.dataset.question));
+    });
+}
+</script>
 {% endblock %}
