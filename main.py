@@ -5,6 +5,8 @@ import json
 import threading
 from datetime import datetime
 from urllib.parse import urlencode
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import requests
@@ -709,65 +711,128 @@ def fetch_user_assets(user_email):
     )
 
 def build_dashboard_data(user_email):
-    scans = fetch_user_scans(user_email)
+    scans  = fetch_user_scans(user_email)
     assets = fetch_user_assets(user_email)
-
-    total_scans = len(scans)
-    running_scans = sum(1 for scan in scans if scan["status"] == "scanning")
-    failed_scans = sum(1 for scan in scans if scan["status"] == "failed")
-    done_scans = sum(1 for scan in scans if scan["status"] == "done")
-
-    severity_counts = {
-        "critical": 0,
-        "high": 0,
-        "medium": 0,
-        "low": 0,
-    }
-
+ 
+    total_scans   = len(scans)
+    running_scans = sum(1 for s in scans if s["status"] == "scanning")
+    failed_scans  = sum(1 for s in scans if s["status"] == "failed")
+    done_scans    = sum(1 for s in scans if s["status"] == "done")
+ 
+    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    scan_type_counts = {"security": 0, "web": 0, "port": 0, "cve": 0}
     total_vulns = 0
     fixed_vulns = 0
-
+ 
+    # ── Ports aggregation ──
+    ports_map = defaultdict(lambda: {"count": 0, "service": ""})
+ 
+    # ── Risk trend: last 14 days ──
+    today = datetime.utcnow().date()
+    trend_days   = [(today - timedelta(days=13 - i)) for i in range(14)]
+    trend_labels = [d.strftime("%b %d") for d in trend_days]
+    trend_data   = {d: {"critical": 0, "high": 0, "medium": 0} for d in trend_days}
+ 
+    # ── Running scan IDs (for live polling) ──
+    running_scan_ids = [s["id"] for s in scans if s["status"] == "scanning"]
+ 
     for scan in scans:
+        # Count scan types
+        stype = (scan.get("scan_type") or "").lower()
+        if stype in scan_type_counts:
+            scan_type_counts[stype] += 1
+ 
         if scan["status"] != "done":
             continue
-
+ 
         full_scan = fetch_scan(scan["id"], user_email)
         if not full_scan or not full_scan.get("result_json"):
             continue
-
-        payload, _ = load_scan_result(full_scan)
-        if payload is None:
+        try:
+            payload = json.loads(full_scan["result_json"])
+        except:
             continue
-
+ 
         summary = summarize_scan_payload(payload)
-
+ 
         for key in severity_counts:
             severity_counts[key] += summary["severity_counts"][key]
-
+ 
         total_vulns += summary["vulnerabilities"]
-
-    # 🔥 FIXED LOGIC (simple but realistic)
-    # assume vulnerabilities decrease over time per asset
+ 
+        # ── Aggregate open ports ──
+        port_list = []
+        if isinstance(payload, list):
+            port_list = [
+                item for item in payload
+                if isinstance(item, dict) and item.get("port")
+            ]
+        elif isinstance(payload, dict):
+            port_list = payload.get("ports") or payload.get("open_ports_list") or []
+ 
+        for item in port_list:
+            port_num = str(item.get("port", ""))
+            if port_num:
+                ports_map[port_num]["count"] += 1
+                ports_map[port_num]["service"] = (
+                    item.get("service") or item.get("name") or _guess_service(port_num)
+                )
+ 
+        # ── Risk trend bucketing ──
+        created_str = scan.get("completed_at") or scan.get("created_at") or ""
+        try:
+            scan_date = datetime.fromisoformat(created_str[:10]).date()
+        except:
+            continue
+        if scan_date in trend_data:
+            for sev in ("critical", "high", "medium"):
+                trend_data[scan_date][sev] += summary["severity_counts"][sev]
+ 
+    # Build top ports list (sorted by count)
+    top_ports = sorted(
+        [{"port": k, **v} for k, v in ports_map.items()],
+        key=lambda x: -x["count"]
+    )[:8]
+ 
+    # Fixed vulns heuristic
     previous_total = sum(a.get("vulnerabilities", 0) for a in assets)
     fixed_vulns = max(0, previous_total - total_vulns)
-
+ 
     completion_rate = int((done_scans / total_scans) * 100) if total_scans else 0
-
+ 
     return {
-        "total_scans": total_scans,
-        "running_scans": running_scans,
-        "failed_scans": failed_scans,
-        "done_scans": done_scans,
-        "completion_rate": completion_rate,
-        "severity_counts": severity_counts,
-        "recent_scans": scans[:8],
-        "assets": assets,
-        "total_assets": len(assets),
-
-        # 🔥 NEW DATA
-        "total_vulns": total_vulns,
-        "fixed_vulns": fixed_vulns,
+        "total_scans":      total_scans,
+        "running_scans":    running_scans,
+        "failed_scans":     failed_scans,
+        "done_scans":       done_scans,
+        "completion_rate":  completion_rate,
+        "severity_counts":  severity_counts,
+        "scan_type_counts": scan_type_counts,
+        "recent_scans":     scans[:8],
+        "assets":           assets,
+        "total_assets":     len(assets),
+        "total_vulns":      total_vulns,
+        "fixed_vulns":      fixed_vulns,
+        "top_ports":        top_ports,
+        "total_open_ports": sum(p["count"] for p in top_ports),
+        "running_scan_ids": running_scan_ids,
+        "risk_trend": {
+            "labels":   trend_labels,
+            "critical": [trend_data[d]["critical"] for d in trend_days],
+            "high":     [trend_data[d]["high"]     for d in trend_days],
+            "medium":   [trend_data[d]["medium"]   for d in trend_days],
+        }
     }
+
+def _guess_service(port):
+    COMMON = {
+        "21": "FTP", "22": "SSH", "23": "Telnet", "25": "SMTP",
+        "53": "DNS", "80": "HTTP", "110": "POP3", "143": "IMAP",
+        "443": "HTTPS", "445": "SMB", "3306": "MySQL", "3389": "RDP",
+        "5432": "PostgreSQL", "6379": "Redis", "8080": "HTTP-Alt",
+        "8443": "HTTPS-Alt", "27017": "MongoDB"
+    }
+    return COMMON.get(str(port), "Unknown")
 
 ensure_scans_table()
 ensure_users_schema()
@@ -904,30 +969,19 @@ def result():
     target = None
     scan_type = None
     scan_error = None
+
     if selected_scan:
         target = selected_scan["target"]
         scan_type = selected_scan["scan_type"]
         scan_error = selected_scan.get("error_message")
-<<<<<<< HEAD
+
         if selected_scan.get("result_json"):
-            result_payload = json.loads(selected_scan["result_json"])
-            if (
-                scan_type == "security"
-                and isinstance(result_payload, dict)
-                and not result_payload.get("error")
-                and not result_payload.get("ai")
-            ):
-                result_payload["ai"] = build_ai_analysis(result_payload)
-=======
-        result_payload, result_error = load_scan_result(selected_scan)
-        if result_error:
-            result_payload = {
-                "error": "Unreadable saved result",
-                "message": result_error,
-            }
-        else:
-            result_payload = decorate_result_payload(result_payload)
->>>>>>> 8e27e82 (update)
+            try:
+                result_payload = json.loads(selected_scan["result_json"])
+                result_payload = decorate_result_payload(result_payload)
+            except:
+                result_payload = None
+
 
     return render_template(
         "result.html",
@@ -1248,6 +1302,78 @@ def google_callback():
         "email": email
     }
     return redirect(url_for("dashboard"))
+
+@app.route("/api/scan_status/<int:scan_id>")
+def api_scan_status(scan_id):
+    """Real-time scan progress — polled by dashboard JS every 2.5s"""
+    if "user" not in session:
+        return jsonify({"error": "unauthorized"}), 401
+ 
+    scan = fetch_scan(scan_id, session["user"]["email"])
+    if not scan:
+        return jsonify({"error": "not found"}), 404
+ 
+    result = {}
+    if scan.get("result_json"):
+        try:
+            result = json.loads(scan["result_json"])
+        except:
+            pass
+ 
+    # If scan is done or failed, progress = 100
+    if scan["status"] == "done":
+        progress_pct = 100
+    elif scan["status"] == "failed":
+        progress_pct = 0
+    else:
+        # Real progress stored by scan modules in result_json
+        progress_pct = int(result.get("progress_pct", 0) or 0)
+ 
+    return jsonify({
+        "id":           scan_id,
+        "target":       scan.get("target"),
+        "scan_type":    scan.get("scan_type"),
+        "status":       scan["status"],
+        "progress_pct": progress_pct,
+        "phase":        result.get("phase", scan["status"].title()),
+        "eta_seconds":  int(result.get("eta_seconds", 0) or 0),
+        "current_step": int(result.get("current_step", 0) or 0),
+        "steps":        result.get("steps") or ["Resolve", "Scan", "Analyze", "Report"],
+    })
+ 
+ 
+@app.route("/api/active_scans")
+def api_active_scans():
+    """Returns all currently running scans for the logged-in user"""
+    if "user" not in session:
+        return jsonify([]), 401
+ 
+    scans = fetch_user_scans(session["user"]["email"])
+    running = [s for s in scans if s["status"] == "scanning"]
+ 
+    result = []
+    for scan in running:
+        full = fetch_scan(scan["id"], session["user"]["email"])
+        progress_data = {}
+        if full and full.get("result_json"):
+            try:
+                progress_data = json.loads(full["result_json"])
+            except:
+                pass
+ 
+        result.append({
+            "id":           scan["id"],
+            "target":       scan.get("target"),
+            "scan_type":    scan.get("scan_type"),
+            "status":       "scanning",
+            "progress_pct": int(progress_data.get("progress_pct", 0) or 0),
+            "phase":        progress_data.get("phase", "Scanning..."),
+            "eta_seconds":  int(progress_data.get("eta_seconds", 0) or 0),
+            "current_step": int(progress_data.get("current_step", 0) or 0),
+            "steps":        progress_data.get("steps") or ["Resolve", "Scan", "Analyze", "Report"],
+        })
+ 
+    return jsonify(result)
 
 
 # ================= LOGOUT =================

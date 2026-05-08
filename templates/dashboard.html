@@ -4,40 +4,29 @@
 
 <div class="dashboard">
 
-    <!-- 🔥 WELCOME -->
+    <!-- ══ WELCOME BANNER ══ -->
     <div class="welcome">
         <div class="welcome-left">
-            <h1>Welcome back, {{ user.name.title() }}</h1>
-
+            <h1>Welcome back, {{ user.name.title() }} 👋</h1>
             <p class="welcome-sub">
                 {% if dashboard_data.severity_counts.critical > 0 %}
-                    {{ dashboard_data.severity_counts.critical }} critical vulnerabilities need attention
+                    ⚠️ {{ dashboard_data.severity_counts.critical }} critical vulnerabilities need your attention
                 {% else %}
-                    Your system is stable — no critical threats detected
+                    ✅ Your system is stable — no critical threats detected
                 {% endif %}
             </p>
-
             <div class="welcome-chips">
-                <span class="chip critical">
-                    {{ dashboard_data.severity_counts.critical }} Critical
-                </span>
-                <span class="chip fixed">
-                    {{ dashboard_data.fixed_vulns }} Fixed
-                </span>
-                <span class="chip assets">
-                    {{ dashboard_data.total_assets }} Assets
-                </span>
+                <span class="chip critical"><i class="fas fa-biohazard"></i> {{ dashboard_data.severity_counts.critical }} Critical</span>
+                <span class="chip fixed"><i class="fas fa-check-circle"></i> {{ dashboard_data.fixed_vulns }} Fixed</span>
+                <span class="chip assets"><i class="fas fa-server"></i> {{ dashboard_data.total_assets }} Assets</span>
             </div>
         </div>
-
         <div class="welcome-right">
-            <a href="{{ url_for('scan_page') }}" class="main-btn">
-                Start Scan
-            </a>
+            <a href="{{ url_for('scan_page') }}" class="main-btn">Start Scan</a>
         </div>
     </div>
 
-    <!-- 🔥 CARDS -->
+    <!-- ══ STAT CARDS ══ -->
     <div class="cards">
         <div class="card critical">
             <i class="fas fa-biohazard"></i>
@@ -46,15 +35,13 @@
                 <strong>{{ dashboard_data.severity_counts.critical }}</strong>
             </div>
         </div>
-
         <div class="card high">
             <i class="fas fa-fire"></i>
             <div>
-                <span>High Risk</span>
+                <span>High</span>
                 <strong>{{ dashboard_data.severity_counts.high }}</strong>
             </div>
         </div>
-
         <div class="card medium">
             <i class="fas fa-exclamation-triangle"></i>
             <div>
@@ -62,7 +49,6 @@
                 <strong>{{ dashboard_data.severity_counts.medium }}</strong>
             </div>
         </div>
-
         <div class="card low">
             <i class="fas fa-shield-alt"></i>
             <div>
@@ -72,46 +58,220 @@
         </div>
     </div>
 
-    <!-- 🔥 CHARTS -->
-    <div class="charts">
-        <div class="panel">
-            <h2>Vulnerabilities vs Fixed</h2>
-            <canvas id="vulnChart"></canvas>
+    <!-- ══ SECONDARY STATS ══ -->
+    <div class="mini-stats">
+        <div class="mini-card">
+            <div class="mini-icon purple"><i class="fas fa-search"></i></div>
+            <div class="mini-info">
+                <span class="mini-val">{{ dashboard_data.total_scans }}</span>
+                <span class="mini-lbl">Total Scans</span>
+            </div>
+            <div class="mini-rate">{{ dashboard_data.completion_rate }}%</div>
         </div>
-
-        <div class="panel">
-            <h2>Severity Distribution</h2>
-            <canvas id="donutChart"></canvas>
+        <div class="mini-card">
+            <div class="mini-icon teal"><i class="fas fa-check-double"></i></div>
+            <div class="mini-info">
+                <span class="mini-val">{{ dashboard_data.done_scans }}</span>
+                <span class="mini-lbl">Completed</span>
+            </div>
+            <div class="mini-badge green">Done</div>
+        </div>
+        <div class="mini-card">
+            <div class="mini-icon orange"><i class="fas fa-spinner fa-spin"></i></div>
+            <div class="mini-info">
+                <span class="mini-val" id="running-count">{{ dashboard_data.running_scans }}</span>
+                <span class="mini-lbl">Running</span>
+            </div>
+            <div class="mini-badge blue" id="running-badge">
+                {% if dashboard_data.running_scans > 0 %}Live{% else %}Idle{% endif %}
+            </div>
+        </div>
+        <div class="mini-card">
+            <div class="mini-icon red"><i class="fas fa-times-circle"></i></div>
+            <div class="mini-info">
+                <span class="mini-val">{{ dashboard_data.failed_scans }}</span>
+                <span class="mini-lbl">Failed</span>
+            </div>
+            <div class="mini-badge red">Errors</div>
         </div>
     </div>
 
-    <!-- 🔥 TABLE -->
-    <div class="panel">
-        <h2>Assets Overview</h2>
+    <!-- ══ LIVE SCAN PROGRESS ══ -->
+    <div class="panel" id="live-panel">
+        <div class="panel-head">
+            <h2><span class="live-dot" id="live-indicator"></span> Live Scan Activity</h2>
+            <span id="live-subtitle">Checking...</span>
+        </div>
+        <div id="live-scans-container">
+            <div class="empty-live">
+                <i class="fas fa-radar"></i>
+                <p>No active scans right now</p>
+                <a href="/scan" class="primary-action" style="margin-top:8px;display:inline-block;padding:8px 16px">Start a Scan</a>
+            </div>
+        </div>
+    </div>
 
+    <!-- ══ CHARTS ROW 1: SEVERITY + PORTS ══ -->
+    <div class="charts-row">
+
+        <!-- Vulnerabilities by Severity -->
+        <div class="panel chart-panel">
+            <div class="panel-head">
+                <h2><i class="fas fa-bug"></i> Vulnerabilities by Severity</h2>
+                <span>{{ dashboard_data.total_vulns }} total</span>
+            </div>
+            <div class="sev-body">
+                <div class="donut-wrap">
+                    <canvas id="sevDonut" width="160" height="160"></canvas>
+                    <div class="donut-center">
+                        <strong>{{ dashboard_data.total_vulns }}</strong>
+                        <span>vulns</span>
+                    </div>
+                </div>
+                <div class="sev-bars">
+                    <div class="sev-row">
+                        <span class="sev-dot" style="background:#7f1d1d"></span>
+                        <span class="sev-name">Critical</span>
+                        <div class="sev-bar-wrap">
+                            <div class="sev-bar" id="bar-c"
+                                 style="background:linear-gradient(90deg,#7f1d1d,#ef4444);width:0%"
+                                 data-val="{{ dashboard_data.severity_counts.critical }}"
+                                 data-max="{{ [dashboard_data.severity_counts.critical, dashboard_data.severity_counts.high, dashboard_data.severity_counts.medium, dashboard_data.severity_counts.low]|max or 1 }}">
+                            </div>
+                        </div>
+                        <span class="sev-num">{{ dashboard_data.severity_counts.critical }}</span>
+                    </div>
+                    <div class="sev-row">
+                        <span class="sev-dot" style="background:#ef4444"></span>
+                        <span class="sev-name">High</span>
+                        <div class="sev-bar-wrap">
+                            <div class="sev-bar" id="bar-h"
+                                 style="background:linear-gradient(90deg,#ef4444,#f97316);width:0%"
+                                 data-val="{{ dashboard_data.severity_counts.high }}"
+                                 data-max="{{ [dashboard_data.severity_counts.critical, dashboard_data.severity_counts.high, dashboard_data.severity_counts.medium, dashboard_data.severity_counts.low]|max or 1 }}">
+                            </div>
+                        </div>
+                        <span class="sev-num">{{ dashboard_data.severity_counts.high }}</span>
+                    </div>
+                    <div class="sev-row">
+                        <span class="sev-dot" style="background:#f97316"></span>
+                        <span class="sev-name">Medium</span>
+                        <div class="sev-bar-wrap">
+                            <div class="sev-bar" id="bar-m"
+                                 style="background:linear-gradient(90deg,#f59e0b,#eab308);width:0%"
+                                 data-val="{{ dashboard_data.severity_counts.medium }}"
+                                 data-max="{{ [dashboard_data.severity_counts.critical, dashboard_data.severity_counts.high, dashboard_data.severity_counts.medium, dashboard_data.severity_counts.low]|max or 1 }}">
+                            </div>
+                        </div>
+                        <span class="sev-num">{{ dashboard_data.severity_counts.medium }}</span>
+                    </div>
+                    <div class="sev-row">
+                        <span class="sev-dot" style="background:#3b82f6"></span>
+                        <span class="sev-name">Low</span>
+                        <div class="sev-bar-wrap">
+                            <div class="sev-bar" id="bar-l"
+                                 style="background:linear-gradient(90deg,#3b82f6,#2563eb);width:0%"
+                                 data-val="{{ dashboard_data.severity_counts.low }}"
+                                 data-max="{{ [dashboard_data.severity_counts.critical, dashboard_data.severity_counts.high, dashboard_data.severity_counts.medium, dashboard_data.severity_counts.low]|max or 1 }}">
+                            </div>
+                        </div>
+                        <span class="sev-num">{{ dashboard_data.severity_counts.low }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Open Ports -->
+        <div class="panel chart-panel">
+            <div class="panel-head">
+                <h2><i class="fas fa-network-wired"></i> Open Ports</h2>
+                <span>{{ dashboard_data.total_open_ports }} discovered</span>
+            </div>
+            <div class="ports-list" id="ports-list">
+                {% if dashboard_data.top_ports %}
+                    {% for p in dashboard_data.top_ports %}
+                    <div class="port-row">
+                        <div class="port-left">
+                            <span class="port-num">{{ p.port }}</span>
+                            <span class="port-svc">{{ p.service }}</span>
+                        </div>
+                        <div class="port-bar-wrap">
+                            <div class="port-bar" style="width:{{ (p.count / (dashboard_data.top_ports[0].count or 1) * 100)|int }}%"></div>
+                        </div>
+                        <span class="port-count">{{ p.count }} hosts</span>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-ports">
+                        <i class="fas fa-ethernet"></i>
+                        <p>No port data yet — run a Port or Security scan</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Scans by Type -->
+        <div class="panel chart-panel">
+            <div class="panel-head">
+                <h2><i class="fas fa-chart-pie"></i> Scans by Type</h2>
+                <span>{{ dashboard_data.total_scans }} total</span>
+            </div>
+            <div class="type-chart-wrap">
+                <canvas id="typeChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══ RISK TREND ══ -->
+    <div class="panel">
+        <div class="panel-head">
+            <h2><i class="fas fa-chart-line"></i> Risk Trend — Last 14 Days</h2>
+            <div class="legend-row">
+                <span class="legend-dot" style="background:#ef4444"></span><span>Critical</span>
+                <span class="legend-dot" style="background:#f97316"></span><span>High</span>
+                <span class="legend-dot" style="background:#eab308"></span><span>Medium</span>
+            </div>
+        </div>
+        <canvas id="trendChart" height="80"></canvas>
+    </div>
+
+    <!-- ══ ASSETS TABLE ══ -->
+    <div class="panel">
+        <div class="panel-head">
+            <h2><i class="fas fa-server"></i> Assets Overview</h2>
+            <a href="/asset" style="color:#7f30cb;font-size:12px;text-decoration:none">View all →</a>
+        </div>
         <table class="asset-table">
             <thead>
                 <tr>
                     <th>Asset</th>
                     <th>Target</th>
                     <th>Vulnerabilities</th>
+                    <th>Open Ports</th>
                     <th>Status</th>
                 </tr>
             </thead>
-
             <tbody>
             {% for asset in dashboard_data.assets %}
                 <tr>
-                    <td>{{ asset.name }}</td>
-                    <td>{{ asset.target }}</td>
+                    <td><i class="fas fa-desktop" style="color:#94a3b8;margin-right:6px"></i>{{ asset.name }}</td>
+                    <td style="font-family:monospace;font-size:12px">{{ asset.target }}</td>
                     <td>{{ asset.vulnerabilities }}</td>
-
+                    <td>{{ asset.open_ports }}</td>
                     <td>
-                        <span class="badge {{ asset.risk_class }}">
-                            {{ asset.risk_level.title() }} Risk
-                        </span>
+                        {% if asset.risk_level == "CRITICAL" %}
+                            <span class="badge critical">Critical</span>
+                        {% elif asset.risk_level == "HIGH" %}
+                            <span class="badge high">High Risk</span>
+                        {% elif asset.risk_level == "MEDIUM" %}
+                            <span class="badge medium">Medium</span>
+                        {% else %}
+                            <span class="badge safe">Secure</span>
+                        {% endif %}
                     </td>
                 </tr>
+            {% else %}
+                <tr><td colspan="5" style="text-align:center;padding:24px;color:#94a3b8">No assets yet — run your first scan</td></tr>
             {% endfor %}
             </tbody>
         </table>
@@ -119,69 +279,260 @@
 
 </div>
 
+<!-- ══ CHART.JS ══ -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
 <script>
-const vulnHistory = [
-    {{ dashboard_data.total_vulns }},
-    {{ dashboard_data.total_vulns - dashboard_data.fixed_vulns }},
-    {{ dashboard_data.total_vulns }}
-];
+/* ── DATA FROM FLASK ── */
+const SEV = {
+    critical: {{ dashboard_data.severity_counts.critical }},
+    high:     {{ dashboard_data.severity_counts.high }},
+    medium:   {{ dashboard_data.severity_counts.medium }},
+    low:      {{ dashboard_data.severity_counts.low }}
+};
+const TYPE_COUNTS = {{ dashboard_data.scan_type_counts | tojson }};
+const TREND       = {{ dashboard_data.risk_trend | tojson }};
+const RUNNING_IDS = {{ dashboard_data.running_scan_ids | tojson }};
 
-const fixedHistory = [
-    0,
-    {{ dashboard_data.fixed_vulns }},
-    {{ dashboard_data.fixed_vulns }}
-];
+/* ── CHART DEFAULTS ── */
+Chart.defaults.font.family = "'Segoe UI', sans-serif";
+Chart.defaults.plugins.legend.display = false;
+Chart.defaults.plugins.tooltip.backgroundColor = '#0f172a';
+Chart.defaults.plugins.tooltip.titleColor = '#f1f5f9';
+Chart.defaults.plugins.tooltip.bodyColor = '#94a3b8';
+Chart.defaults.plugins.tooltip.padding = 10;
+Chart.defaults.plugins.tooltip.cornerRadius = 8;
+Chart.defaults.animation.duration = 700;
 
-new Chart(document.getElementById("vulnChart"), {
-    type: "line",
+/* ── SEVERITY DONUT ── */
+new Chart(document.getElementById('sevDonut'), {
+    type: 'doughnut',
     data: {
-        labels: ["Before", "Fixed", "Now"],
+        labels: ['Critical','High','Medium','Low'],
+        datasets: [{
+            data: [SEV.critical, SEV.high, SEV.medium, SEV.low],
+            backgroundColor: ['#7f1d1d','#ef4444','#f97316','#3b82f6'],
+            borderWidth: 3,
+            borderColor: '#ffffff',
+            hoverOffset: 5
+        }]
+    },
+    options: {
+        cutout: '72%',
+        responsive: false,
+        plugins: { tooltip: { callbacks: {
+            label: i => ` ${i.label}: ${i.raw}`
+        }}}
+    }
+});
+
+/* ── SEVERITY BARS ANIMATION ── */
+setTimeout(() => {
+    document.querySelectorAll('.sev-bar').forEach(bar => {
+        const val = parseInt(bar.dataset.val) || 0;
+        const max = parseInt(bar.dataset.max) || 1;
+        bar.style.width = (val / max * 100) + '%';
+    });
+}, 200);
+
+/* ── SCANS BY TYPE BAR ── */
+new Chart(document.getElementById('typeChart'), {
+    type: 'bar',
+    data: {
+        labels: ['Security','Web','Port','CVE'],
+        datasets: [{
+            data: [
+                TYPE_COUNTS.security || 0,
+                TYPE_COUNTS.web      || 0,
+                TYPE_COUNTS.port     || 0,
+                TYPE_COUNTS.cve      || 0
+            ],
+            backgroundColor: ['#7f30cb','#01dcba','#3b82f6','#ef4444'],
+            borderRadius: 6,
+            borderSkipped: false
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+            y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 }, stepSize: 1 }, beginAtZero: true }
+        }
+    }
+});
+
+/* ── RISK TREND LINE ── */
+new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+        labels: TREND.labels,
         datasets: [
             {
-                label: "Vulnerabilities",
-                data: vulnHistory,
-                borderColor: "#ef4444",
-                backgroundColor: "rgba(239,68,68,0.1)",
-                tension: 0.4,
-                fill: true
+                label: 'Critical',
+                data: TREND.critical,
+                borderColor: '#ef4444',
+                backgroundColor: 'rgba(239,68,68,0.06)',
+                borderWidth: 2,
+                pointRadius: 3,
+                pointBackgroundColor: '#ef4444',
+                fill: true,
+                tension: 0.4
             },
             {
-                label: "Fixed",
-                data: fixedHistory,
-                borderColor: "#22c55e",
-                backgroundColor: "rgba(34,197,94,0.1)",
-                tension: 0.4,
-                fill: true
+                label: 'High',
+                data: TREND.high,
+                borderColor: '#f97316',
+                backgroundColor: 'rgba(249,115,22,0.04)',
+                borderWidth: 2,
+                pointRadius: 3,
+                pointBackgroundColor: '#f97316',
+                fill: true,
+                tension: 0.4
+            },
+            {
+                label: 'Medium',
+                data: TREND.medium,
+                borderColor: '#eab308',
+                backgroundColor: 'rgba(234,179,8,0.03)',
+                borderWidth: 2,
+                pointRadius: 3,
+                pointBackgroundColor: '#eab308',
+                fill: true,
+                tension: 0.4
             }
         ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 }, maxTicksLimit: 7 } },
+            y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 }, stepSize: 1 }, beginAtZero: true }
+        }
     }
 });
 
-new Chart(document.getElementById("donutChart"), {
-    type: "doughnut",
-    data: {
-        labels: ["Critical", "High", "Medium", "Low"],
-       datasets: [{
-    data: [
-        {{ dashboard_data.severity_counts.critical }},
-        {{ dashboard_data.severity_counts.high }},
-        {{ dashboard_data.severity_counts.medium }},
-        {{ dashboard_data.severity_counts.low }}
-    ],
+/* ═══════════════════════════════════════════
+   LIVE SCAN POLLING
+   Polls /api/scan_status/<id> every 2 seconds
+   ═══════════════════════════════════════════ */
+const TYPE_COLORS = {
+    security: '#7f30cb', web: '#01dcba', port: '#3b82f6', cve: '#ef4444'
+};
+const PHASES_ORDER = ['Resolving', 'Port Scan', 'Web Check', 'CVE Match', 'Report'];
 
-    backgroundColor: [
-        "#7f1d1d", // Critical (very dark red)
-        "#ef4444", // High (red)
-        "#f97316", // Medium (orange)
-        "#22c55e"  // Low (green)
-    ],
+function fmtEta(sec) {
+    if (!sec || sec <= 0) return 'Done';
+    if (sec < 60) return sec + 's';
+    return Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
+}
 
-    borderWidth: 0
-}]
+function buildScanRow(data) {
+    const pct = Math.min(data.progress_pct || 0, 100);
+    const phase = data.phase || data.status || 'Scanning...';
+    const eta = fmtEta(data.eta_seconds);
+    const col = TYPE_COLORS[data.scan_type] || '#7f30cb';
+    const steps = (data.steps || PHASES_ORDER).map((s, i) => {
+        let cls = 'step-pill';
+        if (i < (data.current_step || 0)) cls += ' done';
+        else if (i === (data.current_step || 0)) cls += ' active';
+        return `<span class="${cls}">${s}</span>`;
+    }).join('');
+
+    return `
+    <div class="live-scan-row" id="scan-row-${data.id}">
+        <div class="live-row-head">
+            <div class="live-target">
+                <span class="live-pulse"></span>
+                <span class="live-target-text">${data.target || '#' + data.id}</span>
+                <span class="live-type-badge" style="background:${col}20;color:${col}">${data.scan_type || '—'}</span>
+            </div>
+            <div class="live-meta">
+                <span class="live-phase" id="phase-${data.id}">${phase}</span>
+                <span class="live-eta" id="eta-${data.id}">ETA ${eta}</span>
+            </div>
+        </div>
+        <div class="live-prog-wrap">
+            <div class="live-prog-bar">
+                <div class="live-prog-fill" id="fill-${data.id}" style="width:${pct}%;background:linear-gradient(90deg,${col},${col}aa)"></div>
+            </div>
+            <span class="live-pct" id="pct-${data.id}">${Math.round(pct)}%</span>
+        </div>
+        <div class="live-steps">${steps}</div>
+    </div>`;
+}
+
+async function pollScan(scanId) {
+    try {
+        const r = await fetch(`/api/scan_status/${scanId}`);
+        if (!r.ok) return null;
+        return await r.json();
+    } catch { return null; }
+}
+
+async function updateLivePanel() {
+    const container = document.getElementById('live-scans-container');
+    const indicator = document.getElementById('live-indicator');
+    const subtitle  = document.getElementById('live-subtitle');
+
+    // Fetch all running scans from server
+    let activeScans = [];
+    try {
+        const r = await fetch('/api/active_scans');
+        if (r.ok) activeScans = await r.json();
+    } catch { return; }
+
+    if (!activeScans.length) {
+        indicator.className = 'live-dot idle';
+        subtitle.textContent = 'No active scans';
+        document.getElementById('running-count').textContent = '0';
+        document.getElementById('running-badge').textContent = 'Idle';
+        container.innerHTML = `
+            <div class="empty-live">
+                <i class="fas fa-check-circle" style="color:#01dcba"></i>
+                <p>All clear — no active scans</p>
+                <a href="/scan" class="primary-action" style="margin-top:8px;display:inline-block;padding:8px 16px">Start a Scan</a>
+            </div>`;
+        return;
     }
-});
+
+    indicator.className = 'live-dot active';
+    subtitle.textContent = activeScans.length + ' scan' + (activeScans.length > 1 ? 's' : '') + ' running';
+    document.getElementById('running-count').textContent = activeScans.length;
+    document.getElementById('running-badge').textContent = 'Live';
+
+    // Build / update rows
+    const existing = new Set([...container.querySelectorAll('[id^="scan-row-"]')].map(el => el.id));
+    const incoming = new Set(activeScans.map(s => `scan-row-${s.id}`));
+
+    // Add new rows
+    for (const scan of activeScans) {
+        if (!document.getElementById(`scan-row-${scan.id}`)) {
+            container.insertAdjacentHTML('beforeend', buildScanRow(scan));
+        } else {
+            // Update existing
+            const fillEl  = document.getElementById(`fill-${scan.id}`);
+            const pctEl   = document.getElementById(`pct-${scan.id}`);
+            const etaEl   = document.getElementById(`eta-${scan.id}`);
+            const phaseEl = document.getElementById(`phase-${scan.id}`);
+            const pct = Math.min(scan.progress_pct || 0, 100);
+            if (fillEl)  fillEl.style.width   = pct.toFixed(1) + '%';
+            if (pctEl)   pctEl.textContent     = Math.round(pct) + '%';
+            if (etaEl)   etaEl.textContent     = 'ETA ' + fmtEta(scan.eta_seconds);
+            if (phaseEl) phaseEl.textContent   = scan.phase || '';
+        }
+    }
+    // Remove finished
+    for (const oldId of existing) {
+        if (!incoming.has(oldId)) document.getElementById(oldId)?.remove();
+    }
+}
+
+// Start polling
+updateLivePanel();
+setInterval(updateLivePanel, 2500);
 </script>
 
 {% endblock %}

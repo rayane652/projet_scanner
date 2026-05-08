@@ -1,3 +1,219 @@
+/* ═══════════════════════════════════════════
+   TWO-COLUMN LAYOUT  (sidebar + detail panel)
+   ═══════════════════════════════════════════ */
+
+.result-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 16px;
+    align-items: start;
+}
+
+/* ── Sidebar ── */
+.scan-sidebar {
+    position: sticky;
+    top: 16px;
+    background: #ffffff;
+    border: 1px solid #e7edf5;
+    border-radius: 8px;
+    box-shadow: 0 12px 28px rgba(82, 100, 135, 0.08);
+    overflow: hidden;
+}
+
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 16px;
+    border-bottom: 1px solid #e7edf5;
+}
+
+.sidebar-header i {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    color: #4f46e5;
+    background: #eef2ff;
+    font-size: 13px;
+}
+
+.sidebar-header h3 {
+    flex: 1;
+    color: #0f172a;
+    font-size: 14px;
+}
+
+.scan-count-badge {
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #4f46e5;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.sidebar-empty {
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 8px;
+    padding: 32px 16px;
+    text-align: center;
+}
+
+.sidebar-empty i {
+    color: #cbd5e1;
+    font-size: 26px;
+}
+
+.sidebar-empty p {
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+.sidebar-empty a {
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: #635bff;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+/* ── Scan list ── */
+.scan-list {
+    list-style: none;
+    margin: 0;
+    padding: 8px;
+    display: grid;
+    gap: 4px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #e2e8f0 transparent;
+}
+
+.scan-list-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 11px;
+    border-radius: 7px;
+    text-decoration: none;
+    transition: background 0.15s;
+    border: 1px solid transparent;
+}
+
+.scan-list-item:hover {
+    background: #f8fafc;
+    border-color: #e7edf5;
+}
+
+.scan-list-item.active {
+    background: #eef2ff;
+    border-color: #c7d2fe;
+}
+
+.scan-num {
+    min-width: 28px;
+    height: 28px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 7px;
+    background: #f1f5f9;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    flex: 0 0 auto;
+}
+
+.scan-list-item.active .scan-num {
+    background: #4f46e5;
+    color: #ffffff;
+}
+
+.scan-list-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.scan-list-name {
+    display: block;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.scan-list-item.active .scan-list-name {
+    color: #3730a3;
+}
+
+.scan-list-meta {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 3px;
+    color: #94a3b8;
+    font-size: 11px;
+}
+
+/* scan type pills */
+.scan-type-pill {
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.type-security { color: #7c3aed; background: #f3e8ff; }
+.type-web      { color: #2563eb; background: #dbeafe; }
+.type-port     { color: #0891b2; background: #cffafe; }
+.type-cve      { color: #dc2626; background: #fee2e2; }
+
+/* status dot */
+.scan-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+}
+
+.dot-done     { background: #22c55e; }
+.dot-scanning { background: #3b82f6; animation: pulse-dot 1.2s infinite; }
+.dot-failed   { background: #ef4444; }
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.35; }
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+    .result-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .scan-sidebar {
+        position: static;
+    }
+
+    .scan-list {
+        max-height: 220px;
+    }
+}
+
+
 .result-dashboard {
     display: grid;
     gap: 16px;
