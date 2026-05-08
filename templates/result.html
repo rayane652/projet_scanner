@@ -352,18 +352,24 @@
                                 </div>
                             </div>
                             <div class="ai-chat" data-scan-id="{{ selected_scan.id }}">
-                                <h4>Chat With This Scan</h4>
+                                <div class="ai-chat-header">
+                                    <span class="ai-chat-badge">&#x1F9E0; AI Analyst</span>
+                                    <button type="button" id="aiClearBtn" title="Clear chat">&#x21BA; Clear</button>
+                                </div>
                                 <div class="ai-suggestions">
                                     {% for question in results.ai.suggested_questions %}
                                         <button type="button" data-question="{{ question }}">{{ question }}</button>
                                     {% endfor %}
                                 </div>
                                 <div class="ai-chat-log" id="aiChatLog">
-                                    <div class="ai-message">Ask about risk, CVEs, ports, false positives, OS, or remediation.</div>
+                                    <div class="ai-message bot">
+                                        Ask about <strong>risk</strong>, <strong>CVEs</strong>, <strong>attack paths</strong>,
+                                        <strong>remediation scripts</strong>, or <strong>false positives</strong>.
+                                    </div>
                                 </div>
                                 <div class="ai-chat-form">
-                                    <input id="aiQuestion" type="text" placeholder="Ask about this scan">
-                                    <button type="button" id="aiAskButton">Ask</button>
+                                    <input id="aiQuestion" type="text" placeholder="Ask anything about this scan&#x2026;" autocomplete="off">
+                                    <button type="button" id="aiAskButton">Send</button>
                                 </div>
                             </div>
                         </div>
@@ -634,41 +640,117 @@
     </div>
 </div>
 
+<!-- marked.js for markdown rendering -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script>
+// ── AI Chat ──────────────────────────────────────────────────────────────────
 const aiChat = document.querySelector(".ai-chat");
 if (aiChat) {
-    const scanId = aiChat.dataset.scanId;
-    const log = document.getElementById("aiChatLog");
-    const input = document.getElementById("aiQuestion");
-    const button = document.getElementById("aiAskButton");
+    const scanId   = aiChat.dataset.scanId;
+    const log      = document.getElementById("aiChatLog");
+    const input    = document.getElementById("aiQuestion");
+    const button   = document.getElementById("aiAskButton");
+    const clearBtn = document.getElementById("aiClearBtn");
+
+    // Conversation history sent to the server for context
+    let conversationHistory = [];
+    let isThinking = false;
+
+    // Configure marked for safe output
+    if (typeof marked !== "undefined") {
+        marked.setOptions({ breaks: true, gfm: true });
+    }
+
+    function renderMarkdown(text) {
+        if (typeof marked !== "undefined") {
+            return marked.parse(text);
+        }
+        // Plain fallback: escape HTML then linkify newlines
+        return text
+            .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+            .replace(/\n/g,"<br>");
+    }
 
     function appendMessage(text, type) {
         const item = document.createElement("div");
         item.className = "ai-message " + (type || "");
-        item.textContent = text;
+        if (type === "bot") {
+            item.innerHTML = renderMarkdown(text);
+            // Style code blocks
+            item.querySelectorAll("pre code, pre").forEach(el => {
+                el.style.cssText = "display:block;background:#0f172a;color:#e2e8f0;padding:10px 12px;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.5;";
+            });
+        } else {
+            item.textContent = text;
+        }
         log.appendChild(item);
         log.scrollTop = log.scrollHeight;
+        return item;
+    }
+
+    function showTyping() {
+        const el = document.createElement("div");
+        el.className = "ai-message bot ai-typing";
+        el.id = "aiTypingIndicator";
+        el.innerHTML = "<span></span><span></span><span></span>";
+        log.appendChild(el);
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function hideTyping() {
+        const el = document.getElementById("aiTypingIndicator");
+        if (el) el.remove();
+    }
+
+    function setLoading(on) {
+        isThinking = on;
+        button.disabled = on;
+        input.disabled  = on;
+        button.textContent = on ? "…" : "Send";
     }
 
     function askAi(question) {
         const value = (question || input.value || "").trim();
-        if (!value) return;
+        if (!value || isThinking) return;
+
         appendMessage(value, "user");
         input.value = "";
+        setLoading(true);
+        showTyping();
+
         fetch(`/scan/${scanId}/ai-chat`, {
-            method: "POST",
+            method:  "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({question: value})
+            body:    JSON.stringify({ question: value, history: conversationHistory })
         })
         .then(r => r.json())
-        .then(d => appendMessage(d.answer || d.error || "No answer returned.", "bot"))
-        .catch(() => appendMessage("AI chat could not answer this question.", "bot"));
+        .then(d => {
+            hideTyping();
+            const answer = d.answer || d.error || "No answer returned.";
+            appendMessage(answer, "bot");
+            // Update history for context
+            conversationHistory.push({ role: "user",      content: value  });
+            conversationHistory.push({ role: "assistant", content: answer });
+            // Keep only last 20 messages (10 turns) to avoid giant payloads
+            if (conversationHistory.length > 20) {
+                conversationHistory = conversationHistory.slice(-20);
+            }
+        })
+        .catch(() => {
+            hideTyping();
+            appendMessage("Network error — could not reach the AI analyst.", "bot");
+        })
+        .finally(() => setLoading(false));
     }
 
     button?.addEventListener("click", () => askAi());
-    input?.addEventListener("keydown", e => { if (e.key === "Enter") askAi(); });
+    input?.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) askAi(); });
     aiChat.querySelectorAll("[data-question]").forEach(el => {
         el.addEventListener("click", () => askAi(el.dataset.question));
+    });
+    clearBtn?.addEventListener("click", () => {
+        conversationHistory = [];
+        log.innerHTML = '<div class="ai-message bot">Chat cleared. Ask a new question.</div>';
     });
 }
 

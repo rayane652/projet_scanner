@@ -8,6 +8,13 @@ from urllib.parse import urlencode
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+# Load .env file (GEMINI_API_KEY etc.)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import requests
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -1045,8 +1052,16 @@ def ai_chat(scan_id):
             "answer": "AI chat is available for Security Scan reports only."
         })
 
-    question = (request.get_json(silent=True) or {}).get("question", "")
-    return jsonify({"answer": answer_scan_question(payload, question)})
+    body     = request.get_json(silent=True) or {}
+    question = body.get("question", "")
+    history  = body.get("history") or []
+    # Sanitise: only allow role/content keys to reach the AI
+    safe_history = [
+        {"role": str(m.get("role", "user"))[:16], "content": str(m.get("content", ""))[:2000]}
+        for m in history
+        if isinstance(m, dict) and m.get("role") in ("user", "assistant") and m.get("content")
+    ]
+    return jsonify({"answer": answer_scan_question(payload, question, safe_history)})
 
 
 # ================= SIGNUP =================
