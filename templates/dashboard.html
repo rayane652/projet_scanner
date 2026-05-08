@@ -103,11 +103,20 @@
             <span id="live-subtitle">Checking...</span>
         </div>
         <div id="live-scans-container">
+
+        {% if dashboard_data.running_scans == 0 %}
             <div class="empty-live">
                 <i class="fas fa-radar"></i>
                 <p>No active scans right now</p>
-                <a href="/scan" class="primary-action" style="margin-top:8px;display:inline-block;padding:8px 16px">Start a Scan</a>
+
+                <a href="/scan"
+                class="primary-action"
+                style="margin-top:8px;display:inline-block;padding:8px 16px">
+                    Start a Scan
+                </a>
             </div>
+        {% endif %}
+
         </div>
     </div>
 

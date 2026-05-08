@@ -166,14 +166,17 @@ def execute_scan(scan_type, scan_mode, target, form_data):
 
         if not port_results and web_result and web_result.get("error"):
             return {
-                "error": "Target unreachable or no exposed services detected",
-                "target": target,
-                "resolved_ip": ip,
+                "error": True,
+                "status": "failed",
+                "title": "Host Unreachable",
                 "message": (
-                    "Vulnix could not connect to the target as a website and did not "
-                    "find any open ports in the scanned range."
+                    "The target is offline, unreachable, or not responding "
+                    "to HTTP/HTTPS requests."
                 ),
-                "details": web_result.get("errors") or [],
+                "recommendation": (
+                    "Verify that the device is powered on, connected to the network, "
+                    "and that the IP address is correct."
+                )
             }
 
         if scan_mode == "authenticated":
@@ -233,7 +236,12 @@ def run_scan_job(scan_id, scan_type, scan_mode, target, form_data):
             SET status = ?, result_json = ?, error_message = NULL, completed_at = ?
             WHERE id = ?
             """,
-            ("done", json.dumps(result, default=str), datetime.utcnow().isoformat(), scan_id),
+            (
+                "failed" if result.get("status") == "failed" else "done",
+                json.dumps(result, default=str),
+                datetime.utcnow().isoformat(),
+                scan_id
+            ),
         )
         conn.commit()
         conn.close()
@@ -1011,7 +1019,12 @@ def delete_scan(scan_id):
     conn.commit()
     conn.close()
 
-    return redirect(url_for("asset_page"))
+    remaining_scans = fetch_user_scans(user_email)
+
+    if remaining_scans:
+        return redirect(url_for("result", scan_id=remaining_scans[0]["id"]))
+
+    return redirect(url_for("result"))
 
 @app.route("/scan/<int:scan_id>/ai-chat", methods=["POST"])
 def ai_chat(scan_id):
