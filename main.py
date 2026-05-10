@@ -7,6 +7,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 from datetime import datetime, timedelta
 from collections import defaultdict
+from modules.ai_remediation import generate_remediation
 
 # Load .env file (GEMINI_API_KEY etc.)
 try:
@@ -1013,6 +1014,8 @@ def result():
             except:
                 result_payload = None
 
+    findings = (result_payload or {}).get("findings", [])
+
 
     return render_template(
         "result.html",
@@ -1418,6 +1421,36 @@ def api_active_scans():
         })
  
     return jsonify(result)
+
+@app.route("/generate-fix", methods=["POST"])
+def generate_fix():
+
+    if "user" not in session:
+        return jsonify({
+            "error": "Unauthorized"
+        }), 401
+
+    try:
+
+        from modules.ai_remediation import generate_single_remediation
+
+        data = request.get_json()
+
+        result = generate_single_remediation(data)
+
+        return jsonify(result)
+
+    except Exception as e:
+
+        print("AI FIX ERROR:", repr(e))
+
+        return jsonify({
+            "title": "AI Error",
+            "explanation": str(e),
+            "impact": "",
+            "commands": [],
+            "config": ""
+        }), 500
 
 
 # ================= LOGOUT =================
