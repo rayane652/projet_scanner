@@ -333,6 +333,8 @@ RULES:
 
 def _call_gemini(system_prompt, messages, max_tokens=1500):
 
+    import time
+
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
         return None
@@ -350,33 +352,41 @@ def _call_gemini(system_prompt, messages, max_tokens=1500):
             "content": msg["content"]
         })
 
-    try:
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "openai/gpt-oss-20b:free",
-                "messages": formatted_messages,
-                "max_tokens": 800
-            },
-            timeout=60
-        )
+    model = "openai/gpt-oss-20b:free"
 
-        print("STATUS:", response.status_code)
-        print("RESPONSE:", response.text)
+    for attempt in range(3):
 
-        if response.status_code == 200:
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
+        try:
 
-        return None
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model,
+                    "messages": formatted_messages,
+                    "max_tokens": 500
+                },
+                timeout=25
+            )
 
-    except Exception as e:
-        print("ERROR:", e)
-        return None
+            print("MODEL:", model)
+            print("STATUS:", response.status_code)
+
+            if response.status_code == 200:
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+
+            if response.status_code == 429:
+                print("Rate limited, retrying...")
+                time.sleep(3)
+
+        except Exception as e:
+            print("ERROR:", e)
+
+    return None
 
 
 def _fallback_answer(report, question):

@@ -1,0 +1,6 @@
+flask
+requests
+paramiko
+pywinrm
+python-dotenv
+werkzeug

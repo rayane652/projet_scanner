@@ -127,14 +127,35 @@
                             </div>
                         </label>
 
-                        <label class="field full">
+                        <label class="field">
                             <span>Credential Type</span>
                             <div class="input-box">
                                 <i class="fas fa-id-card left-icon"></i>
-                                <select name="auth_type">
-                                    <option value="http_basic">HTTP Basic</option>
-                                    <option value="ssh">SSH</option>
+                                <select name="auth_type" id="auth-type-select">
+                                    <option value="http_basic">🌐 HTTP Basic</option>
+                                    <option value="ssh">🐧 SSH (Linux/Unix)</option>
+                                    <option value="winrm">🪟 Windows (WinRM)</option>
                                 </select>
+                            </div>
+                        </label>
+
+                        <label class="field" id="auth-port-field">
+                            <span id="auth-port-label">Port</span>
+                            <div class="input-box">
+                                <i class="fas fa-plug left-icon"></i>
+                                <input type="number" name="auth_port" id="auth-port-input"
+                                       placeholder="22" min="1" max="65535">
+                            </div>
+                        </label>
+
+                        <label class="field full" id="ssh-key-field" style="display:none;">
+                            <span>SSH Private Key <small style="font-weight:400;opacity:.7;">(optional — overrides password)</small></span>
+                            <div class="input-box" style="height:auto;">
+                                <i class="fas fa-key left-icon" style="top:14px;"></i>
+                                <textarea name="auth_ssh_key" id="auth-ssh-key"
+                                          rows="5"
+                                          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+                                          style="padding-left:2.4rem;resize:vertical;font-family:monospace;font-size:12px;"></textarea>
                             </div>
                         </label>
 
@@ -219,24 +240,54 @@
 
 <!-- SCRIPT -->
 <script>
-const toggle = document.getElementById("auth-toggle");
-const hiddenInput = document.getElementById("scan-mode-hidden");
+const toggle       = document.getElementById("auth-toggle");
+const hiddenInput  = document.getElementById("scan-mode-hidden");
+const authType     = document.getElementById("auth-type-select");
+const portField    = document.getElementById("auth-port-field");
+const portInput    = document.getElementById("auth-port-input");
+const portLabel    = document.getElementById("auth-port-label");
+const sshKeyField  = document.getElementById("ssh-key-field");
 
-const inputs = document.querySelectorAll(
-    'input[name="auth_username"], input[name="auth_password"], select[name="auth_type"]'
+const AUTH_PORTS = { ssh: "22", winrm: "5985", http_basic: "" };
+const PORT_LABELS = { ssh: "SSH Port", winrm: "WinRM Port", http_basic: "Port" };
+
+const allInputs = document.querySelectorAll(
+    'input[name="auth_username"], input[name="auth_password"], ' +
+    'select[name="auth_type"], input[name="auth_port"], textarea[name="auth_ssh_key"]'
 );
 
-toggle.addEventListener("change", () => {
+function applyAuthType() {
+    const type    = authType.value;
     const enabled = toggle.checked;
 
-    hiddenInput.value = enabled ? "authenticated" : "unauthenticated";
+    // Show/hide port field (hide for http_basic)
+    portField.style.display = (type !== "http_basic") ? "" : "none";
+    portLabel.textContent   = PORT_LABELS[type] || "Port";
 
-    inputs.forEach(input => {
-        input.disabled = !enabled;
-        input.style.opacity = enabled ? "1" : "0.5";
+    // Set default port placeholder
+    if (!portInput.value || Object.values(AUTH_PORTS).includes(portInput.value)) {
+        portInput.value       = "";
+        portInput.placeholder = AUTH_PORTS[type] || "";
+    }
+
+    // Show SSH key only for SSH
+    sshKeyField.style.display = (type === "ssh") ? "" : "none";
+
+    // Disable all if toggle is off
+    allInputs.forEach(el => {
+        el.disabled      = !enabled;
+        el.style.opacity = enabled ? "1" : "0.5";
     });
+}
+
+toggle.addEventListener("change", () => {
+    hiddenInput.value = toggle.checked ? "authenticated" : "unauthenticated";
+    applyAuthType();
 });
 
+authType.addEventListener("change", applyAuthType);
+
+// Init
 toggle.dispatchEvent(new Event("change"));
 </script>
 

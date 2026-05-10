@@ -337,13 +337,65 @@ def _auth_findings(auth_result):
         ))
 
     if inventory.get("sudo_rights"):
+        sudo_lines = inventory.get("sudo_rights") or []
+        has_nopasswd = any("nopasswd" in l.lower() for l in sudo_lines)
+        has_all      = any("(all)" in l.lower() for l in sudo_lines)
+        sev = "HIGH" if (has_nopasswd and has_all) else "MEDIUM"
+        deep_findings.append(_finding(
+            sev,
+            "Privileged sudo rights detected" + (" (NOPASSWD ALL)" if sev == "HIGH" else ""),
+            auth_type,
+            "Authenticated account has sudo capabilities." + (" NOPASSWD ALL means passwordless root!" if sev == "HIGH" else ""),
+            "Review sudoers configuration and enforce least privilege.",
+            evidence=", ".join(sudo_lines[:2]),
+            category="Authentication",
+        ))
+
+    if inventory.get("dangerous_suid"):
+        deep_findings.append(_finding(
+            "HIGH",
+            "Dangerous SUID binaries found",
+            auth_type,
+            f"{len(inventory['dangerous_suid'])} SUID binary/binaries can be abused for privilege escalation.",
+            "Remove SUID bit from non-essential binaries: chmod -s <binary>",
+            evidence=", ".join((inventory.get("dangerous_suid") or [])[:3]),
+            category="Authentication",
+        ))
+
+    if inventory.get("privileges"):
+        priv_lines = inventory.get("privileges") or []
+        dangerous  = [p for p in priv_lines if any(d in p for d in (
+            "SeDebugPrivilege", "SeTcbPrivilege", "SeLoadDriverPrivilege",
+            "SeImpersonatePrivilege", "SeAssignPrimaryTokenPrivilege",
+        ))]
+        if dangerous:
+            deep_findings.append(_finding(
+                "HIGH",
+                "Dangerous Windows privileges enabled",
+                auth_type,
+                f"{len(dangerous)} high-risk privilege(s) active on this account.",
+                "Restrict privileges to the minimum required. Review local security policy.",
+                evidence=", ".join(p.split()[0] for p in dangerous[:3]),
+                category="Authentication",
+            ))
+
+    if inventory.get("defender") == "disabled":
+        deep_findings.append(_finding(
+            "HIGH",
+            "Windows Defender real-time protection disabled",
+            auth_type,
+            "Antivirus real-time protection is turned off on this Windows host.",
+            "Enable Windows Defender or install an approved antivirus solution.",
+            category="Authentication",
+        ))
+
+    if inventory.get("env_secrets"):
         deep_findings.append(_finding(
             "MEDIUM",
-            "Privileged sudo rights detected",
+            "Sensitive environment variables detected",
             auth_type,
-            "Authenticated account appears to have sudo capabilities.",
-            "Review sudoers configuration and remove unnecessary elevated access.",
-            evidence=", ".join((inventory.get("sudo_rights") or [])[:2]),
+            "Environment variables with names suggesting passwords, keys, or tokens were found.",
+            "Avoid storing secrets in environment variables. Use a secrets manager instead.",
             category="Authentication",
         ))
 
@@ -475,11 +527,23 @@ def _system_profile(target, open_ports, web_result=None, auth_result=None):
     auth_inventory = (auth_result or {}).get("inventory", {})
     auth_os = _parse_os_release(auth_inventory.get("os", ""))
 
+    # Windows: WinRM inventory returns OS caption directly (not /etc/os-release format)
+    if not auth_os and auth_result and auth_result.get("type") == "winrm":
+        raw_os = auth_inventory.get("os", "")
+        if raw_os:
+            auth_os = raw_os
+
     if auth_os:
         os_name = auth_os
-        family = "Linux"
-        confidence = "High"
-        evidence.append("Authenticated SSH /etc/os-release")
+        auth_type_used = (auth_result or {}).get("type", "ssh")
+        if auth_type_used == "winrm":
+            family = "Windows"
+            confidence = "High"
+            evidence.append("Authenticated WinRM — Win32_OperatingSystem")
+        else:
+            family = "Linux"
+            confidence = "High"
+            evidence.append("Authenticated SSH /etc/os-release")
 
         lower_os = auth_os.lower()
         if "metasploitable" in lower_os:
