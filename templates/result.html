@@ -375,6 +375,8 @@
                         </div>
                     </section>
                 {% endif %}
+                    
+                
 
                 {% if results.authentication %}
                     <section class="panel-card auth-panel">
@@ -471,12 +473,28 @@
                                         {% endif %}
                                         {% if item.ai %}
                                             <div class="ai-item-box">
+
                                                 <h4>AI Explanation</h4>
                                                 <p>{{ item.ai.explanation }}</p>
+
                                                 <h4>Impact</h4>
                                                 <p>{{ item.ai.impact }}</p>
+
                                                 <h4>Suggested Fix</h4>
                                                 <p>{{ item.ai.fix }}</p>
+
+                                                <button
+                                                    class="ai-fix-btn"
+                                                    onclick="generateFix(this)"
+                                                    data-title="{{ item.title }}"
+                                                    data-description="{{ item.description }}"
+                                                    data-severity="{{ item.severity }}"
+                                                >
+                                                    🤖 Generate AI Remediation
+                                                </button>
+
+                                                <div class="ai-fix-output"></div>
+
                                                 {% if item.ai.tags %}
                                                     <div class="ai-tag-row compact">
                                                         {% for tag in item.ai.tags %}
@@ -484,10 +502,12 @@
                                                         {% endfor %}
                                                     </div>
                                                 {% endif %}
+
                                                 <p class="fp-note">
                                                     False positive likelihood: <b>{{ item.ai.false_positive }}</b>.
                                                     {{ item.ai.false_positive_reason }}
                                                 </p>
+
                                             </div>
                                         {% endif %}
                                         {% if item.cves %}
@@ -775,6 +795,75 @@ document.getElementById("confirmDeleteBtn").onclick = function () {
         deleteForm.submit();
     }
 };
+
+
+async function generateFix(button) {
+
+    const output = button.nextElementSibling
+
+    output.innerHTML = "Generating AI remediation..."
+
+    const payload = {
+        title: button.dataset.title,
+        description: button.dataset.description,
+        severity: button.dataset.severity
+    }
+
+    try {
+
+        const response = await fetch("/generate-fix", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        })
+
+        const data = await response.json()
+
+        output.innerHTML = `
+            <div class="ai-fix-card">
+
+                <h4>${data.title}</h4>
+
+                <p>${data.explanation}</p>
+
+                <strong>Impact</strong>
+                <p>${data.impact}</p>
+
+                ${
+                    data.commands?.length
+                    ? `
+                        <strong>Commands</strong>
+
+                        ${data.commands.map(
+                            cmd => `<pre>${cmd}</pre>`
+                        ).join("")}
+                    `
+                    : ""
+                }
+
+                ${
+                    data.config
+                    ? `
+                        <strong>Config</strong>
+                        <pre>${data.config}</pre>
+                    `
+                    : ""
+                }
+
+            </div>
+        `
+
+    } catch {
+
+        output.innerHTML = `
+            <p style="color:red;">
+                AI remediation failed
+            </p>
+        `
+    }
+}
 
 
 </script>

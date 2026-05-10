@@ -768,7 +768,6 @@
     line-height: 1.5;
 }
 
-<<<<<<< HEAD
 /* ================= AI ANALYST ================= */
 
 .ai-panel {
@@ -1072,156 +1071,6 @@
 .ai-chat-form button:disabled { background: #94a3b8; cursor: not-allowed; }
 
 /* ================= ERROR ================= */
-=======
-.findings-overview {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: 16px;
-}
-
-.findings-overview h3 {
-    grid-column: 1 / -1;
-}
-
-.finding-circles {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(88px, 1fr));
-    gap: 14px;
-}
-
-.finding-circle-card {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.mini-ring {
-    --ring-color: #64748b;
-    width: 54px;
-    height: 54px;
-    padding: 6px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    background: conic-gradient(var(--ring-color) var(--percent), #edf2f7 0);
-}
-
-.mini-ring span {
-    width: 100%;
-    height: 100%;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    color: #0f172a;
-    background: #ffffff;
-    font-size: 18px;
-   
-}
-
-.severity-ring-critical { --ring-color: #ef4444; }
-.severity-ring-high { --ring-color: #f97316; }
-.severity-ring-medium { --ring-color: #f59e0b; }
-.severity-ring-low { --ring-color: #22c55e; }
-.severity-ring-info { --ring-color: #94a3b8; }
-
-.finding-circle-card b,
-.total-findings span {
-    display: block;
-    color: #0f172a;
-    font-size: 12px;
-   
-}
-
-.finding-circle-card small,
-.total-findings small {
-    color: #64748b;
-    font-size: 11px;
-   
-}
-
-.total-findings {
-    min-width: 210px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding-left: 28px;
-    border-left: 1px solid #edf2f7;
-}
-
-.donut-ring {
-    width: 76px;
-    height: 76px;
-    padding: 12px;
-    border-radius: 50%;
-    background: var(--ring);
-}
-
-.donut-ring::before {
-    content: "";
-    display: block;
-    width: 100%;
-    height: 100%;
-    border-radius: 50%;
-    background: #ffffff;
-}
-
-.total-findings strong {
-    display: block;
-    color: #0f172a;
-    font-size: 28px;
-    line-height: 1;
- 
-}
-
-.result-state-card {
-    min-height: 145px;
-    padding: 22px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-}
-
-.result-state-card.failed {
-    border-color: #fecaca;
-}
-
-.result-empty {
-    min-height: 260px;
-    display: grid;
-    place-items: center;
-    align-content: center;
-    gap: 10px;
-    padding: 30px;
-    text-align: center;
-}
-
-.result-empty i {
-    color: #635bff;
-    font-size: 34px;
-}
-
-.result-empty h2 {
-    color: #0f172a;
-    font-size: 24px;
-
-}
-
-.result-empty p {
-    color: #64748b;
-    font-size: 13px;
-  
-}
-
-.result-empty a {
-    padding: 10px 14px;
-    color: #ffffff;
-    background: #635bff;
-    border-radius: 8px;
-    text-decoration: none;
-   
-}
->>>>>>> 8e27e82 (update)
 
 .scan-error-panel {
     display: grid;
@@ -1315,50 +1164,42 @@
         border-top: 1px solid #e7edf5;
     }
 
-<<<<<<< HEAD
     .ai-grid {
         grid-template-columns: 1fr;
     }
 
     .ai-chat-form {
         grid-template-columns: 1fr;
-=======
-    .result-metrics,
-    .finding-circles {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .findings-overview {
-        grid-template-columns: 1fr;
-    }
-
-    .total-findings {
-        border-left: none;
-        border-top: 1px solid #edf2f7;
-        padding-left: 0;
-        padding-top: 16px;
     }
 }
 
-@media (max-width: 680px) {
-    .result-metrics,
-    .finding-circles,
-    .severity-strip {
-        grid-template-columns: 1fr;
-    }
+.ai-remediation-panel{
+    margin-top:24px;
+}
 
-    .detail-row summary,
-    .static-row {
-        grid-template-columns: 1fr;
-    }
+.ai-remediation-list{
+    display:flex;
+    flex-direction:column;
+    gap:18px;
+}
 
-    .hero-card,
-    .hero-section,
-    .panel-card,
-    .metric-tile,
-    .generic-result-card,
-    .result-state-card {
-        padding: 16px;
->>>>>>> 8e27e82 (update)
-    }
+.ai-remediation-card{
+    background:#0f172a;
+    border:1px solid #1e293b;
+    border-radius:18px;
+    padding:18px;
+}
+
+.ai-remediation-card h4{
+    margin-bottom:14px;
+    color:white;
+}
+
+.ai-remediation-card pre{
+    background:#020617;
+    color:#38bdf8;
+    padding:12px;
+    border-radius:12px;
+    overflow:auto;
+    margin-bottom:10px;
 }

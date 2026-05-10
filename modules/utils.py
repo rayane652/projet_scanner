@@ -24,18 +24,16 @@ def normalize_target(target):
     if not target:
         return ""
 
-    parsed = urlparse(target)
+    # remove protocol
+    target = target.replace("http://", "").replace("https://", "")
 
-    if not parsed.hostname and "://" not in target:
-        parsed = urlparse(f"//{target}")
+    # remove path
+    target = target.split("/")[0]
 
-    if parsed.hostname:
-        return parsed.hostname
+    # remove port
+    target = target.split(":")[0]
 
-    if "://" in target:
-        return ""
-
-    return target.split("/")[0].split(":")[0]
+    return target.strip()
 
 
 def resolve_host(target):
@@ -45,8 +43,14 @@ def resolve_host(target):
         return None
 
     try:
+        socket.inet_aton(host)
+        return host
+    except OSError:
+        pass
+
+    try:
         return socket.gethostbyname(host)
-    except (socket.gaierror, TypeError, UnicodeError):
+    except:
         return None
 
 

@@ -7,6 +7,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 from datetime import datetime, timedelta
 from collections import defaultdict
+from modules.ai_remediation import generate_remediation
 
 # Load .env file (GEMINI_API_KEY etc.)
 try:
@@ -187,12 +188,21 @@ def execute_scan(scan_type, scan_mode, target, form_data):
             }
 
         if scan_mode == "authenticated":
-            auth_result = run_authenticated_checks(
-                target,
-                form_data.get("auth_type"),
-                form_data.get("auth_username"),
-                form_data.get("auth_password"),
-            )
+            try:
+                auth_result = run_authenticated_checks(
+                    target,
+                    form_data.get("auth_type"),
+                    form_data.get("auth_username"),
+                    form_data.get("auth_password"),
+                    form_data.get("auth_port"),
+                    form_data.get("auth_ssh_key"),
+                )
+            except Exception as e:
+                auth_result = {
+                    "status": "failed",
+                    "error": str(e)
+                }
+                print("AUTH ERROR:", repr(e))
 
         return build_security_report(
             target,
@@ -895,9 +905,14 @@ def run_scan():
         return redirect(url_for("home"))
     ensure_scans_table()
 
-    scan_type = request.form.get("type")
+    scan_type = (
+        request.form.get("scan_type")
+        or request.form.get("type")
+        or "security"
+    )
     scan_mode = request.form.get("scan_mode", "unauthenticated")
     target = request.form.get("target")
+    print("TARGET =", repr(target))
     machine_name = (
         request.form.get("machine_name")
         or request.form.get("asset_name")
@@ -908,6 +923,8 @@ def run_scan():
         "auth_type": request.form.get("auth_type"),
         "auth_username": request.form.get("auth_username"),
         "auth_password": request.form.get("auth_password"),
+        "auth_port": request.form.get("auth_port"),
+        "auth_ssh_key": request.form.get("auth_ssh_key"),
         "tcp_scan_method": request.form.get("tcp_scan_method", "connect"),
         "include_udp": request.form.get("include_udp") in {"1", "on", "true"},
     }
@@ -996,6 +1013,8 @@ def result():
                 result_payload = decorate_result_payload(result_payload)
             except:
                 result_payload = None
+
+    findings = (result_payload or {}).get("findings", [])
 
 
     return render_template(
@@ -1402,6 +1421,36 @@ def api_active_scans():
         })
  
     return jsonify(result)
+
+@app.route("/generate-fix", methods=["POST"])
+def generate_fix():
+
+    if "user" not in session:
+        return jsonify({
+            "error": "Unauthorized"
+        }), 401
+
+    try:
+
+        from modules.ai_remediation import generate_single_remediation
+
+        data = request.get_json()
+
+        result = generate_single_remediation(data)
+
+        return jsonify(result)
+
+    except Exception as e:
+
+        print("AI FIX ERROR:", repr(e))
+
+        return jsonify({
+            "title": "AI Error",
+            "explanation": str(e),
+            "impact": "",
+            "commands": [],
+            "config": ""
+        }), 500
 
 
 # ================= LOGOUT =================
