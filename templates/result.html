@@ -32,7 +32,6 @@
                 {% for scan in scans %}
                     {% set is_active = selected_scan and selected_scan.id == scan.id %}
                     <li>
-
                         <a href="{{ url_for('result', scan_id=scan.id) }}"
                         class="scan-list-item {% if is_active %}active{% endif %}">
 
@@ -40,12 +39,8 @@
 
                             <div class="scan-list-body">
                                 <b class="scan-list-name">{{ scan.asset_label or scan.target }}</b>
-
                                 <span class="scan-list-meta">
-                                    <span class="scan-type-pill type-{{ scan.scan_type }}">
-                                        {{ scan.scan_type }}
-                                    </span>
-
+                                    <span class="scan-type-pill type-{{ scan.scan_type }}">{{ scan.scan_type }}</span>
                                     {{ scan.created_at[:10] if scan.created_at else "" }}
                                 </span>
                             </div>
@@ -54,23 +49,11 @@
                                 action="{{ url_for('delete_scan', scan_id=scan.id) }}"
                                 onsubmit="return showDeleteModal(event, this);"
                                 style="margin:0;">
-
-                                <button type="submit"
-                                        style="
-                                            background:none;
-                                            border:none;
-                                            color:#ef4444;
-                                            cursor:pointer;
-                                            font-size:16px;
-                                            padding:0;">
+                                <button type="submit" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;padding:0;">
                                     <i class="fas fa-trash"></i>
                                 </button>
-
                             </form>
                         </a>
-
-                        
-
                     </li>
                 {% endfor %}
             </ul>
@@ -88,31 +71,69 @@
                 <a href="{{ url_for('scan_page') }}">Start Scan</a>
             </section>
 
-        {% elif selected_scan.status == "scanning" %}
-            <section class="result-state-card">
-                <a class="return-icon" href="{{ url_for('asset_page') }}" aria-label="Back to assets">
-                    <i class="fas fa-arrow-left"></i>
-                </a>
-                <div>
-                    <span>Scan Results</span>
-                    <h2>{{ asset_name }}</h2>
-                    <p>{{ target }}</p>
-                </div>
-                <strong class="status-badge scanning">Scanning...</strong>
-            </section>
+       {% elif selected_scan.status == "scanning" %}
+<section class="scan-state-modern scanning-state">
 
-        {% elif selected_scan.status == "failed" %}
-            <section class="result-state-card failed">
-                <a class="return-icon" href="{{ url_for('asset_page') }}" aria-label="Back to assets">
-                    <i class="fas fa-arrow-left"></i>
-                </a>
-                <div>
-                    <span>Scan Results</span>
-                    <h2>Scan failed</h2>
-                    <p>{{ scan_error or "The scan could not be completed." }}</p>
-                </div>
-                <strong class="status-badge failed">Failed</strong>
-            </section>
+    <div class="state-content full-width">
+
+        <span class="state-label">
+            LIVE SCAN
+        </span>
+
+        <h2>
+            Scanning {{ asset_name }}
+        </h2>
+
+        <p>
+            Vulnix is currently analyzing ports, services, vulnerabilities and exposure paths.
+        </p>
+
+        <div class="scan-progress-line">
+            <div class="scan-progress-bar"></div>
+        </div>
+
+        <div class="state-tags">
+            <span>Port Discovery</span>
+            <span>Fingerprinting</span>
+            <span>CVEs</span>
+            <span>AI Analysis</span>
+        </div>
+
+    </div>
+
+</section>
+
+{% elif selected_scan.status == "failed" %}
+<section class="scan-state-modern failed-state">
+
+    <div class="state-content">
+        <span class="state-label failed">
+            SCAN FAILED
+        </span>
+
+        <h2>
+            Scan could not be completed
+        </h2>
+
+        <p class="error-message">
+            {{ scan_error or "The scan encountered an unexpected issue." }}
+        </p>
+
+        <div class="error-box">
+            <i class="fas fa-bug"></i>
+
+            <span>
+                Try checking authentication, target availability or scan configuration.
+            </span>
+        </div>
+
+        <a href="{{ url_for('scan_page') }}" class="retry-scan-btn">
+            <i class="fas fa-rotate-right"></i>
+            Retry Scan
+        </a>
+    </div>
+
+</section>
 
         {% elif selected_scan.status == "done" %}
             {% if results is mapping and results.error %}
@@ -137,99 +158,325 @@
             {% elif scan_type == "security" and results is mapping %}
                 {% set risk_class = (results.risk_class or results.risk_level or "info")|lower %}
 
-                <section class="result-hero-card">
-                    <div class="hero-section scan-overview">
-                        <div class="scan-title-row">
-                            <a class="return-icon" href="{{ url_for('asset_page') }}" aria-label="Back to assets">
-                                <i class="fas fa-arrow-left"></i>
-                            </a>
-                            <span>Scan Results</span>
-                            <strong class="status-badge done"><i class="fas fa-check"></i> Done</strong>
-                        </div>
-                        <h1>{{ asset_name }}</h1>
-                        <p>{{ target }}</p>
-                        <a class="new-scan-btn" href="{{ url_for('scan_page') }}">
-                            <i class="fas fa-plus"></i> New Scan
-                        </a>
-                    </div>
+               <section class="result-hero-card">
 
-                    <div class="hero-section report-summary">
-                        <span class="panel-kicker">Security scan report</span>
-                        <h2>{{ results.target }}</h2>
-                        <p>
-                            {{ results.scan_mode_label }}
-                            {% if results.authentication %}
-                                - {{ results.authentication.type_label }} {{ results.authentication.status }}
-                            {% endif %}
-                        </p>
-                        <div class="score-line">
-                            <strong>{{ results.risk_score }}</strong>
-                            <span>/ 100</span>
-                        </div>
-                        <div class="severity-strip">
-                            {% for item in results.severity_breakdown %}
-                                <span class="severity-cell severity-soft-{{ item.key }}">
-                                    {{ item.label }} {{ item.count }}
-                                </span>
-                            {% endfor %}
-                        </div>
-                    </div>
+    <!-- LEFT -->
+    <div class="hero-identity">
 
-                    <div class="hero-section score-panel">
-                        <div class="score-gauge risk-{{ risk_class }}" style="--score: {{ results.risk_score }}%;">
+        <div class="hero-top-row">
+            <strong class="status-badge done">
+                <i class="fas fa-check"></i>
+                Done
+            </strong>
+
+            <a class="new-scan-btn" href="{{ url_for('scan_page') }}">
+                <i class="fas fa-plus"></i>
+                New Scan
+            </a>
+        </div>
+
+        <!-- ASSET -->
+        <div class="hero-asset-row">
+
+            <div class="hero-os-image">
+
+                {% set system_name = (results.system_profile.name or "")|lower %}
+
+                {% if "windows" in system_name %}
+                    <img src="{{ url_for('static', filename='images/windows.png') }}" alt="Windows">
+
+                {% elif "linux" in system_name
+                    or "ubuntu" in system_name
+                    or "debian" in system_name
+                    or "kali" in system_name
+                    or "centos" in system_name %}
+
+                    <img src="{{ url_for('static', filename='images/linux.png') }}" alt="Linux">
+
+                {% else %}
+                    <img src="{{ url_for('static', filename='images/server.png') }}" alt="System">
+                {% endif %}
+
+            </div>
+
+            <div>
+                <h1 class="hero-asset-name">{{ asset_name }}</h1>
+                <p class="hero-target">{{ target }}</p>
+            </div>
+
+        </div>
+
+        <!-- INFO CARDS -->
+        <div class="hero-info-cards">
+
+            <div class="hero-info-card">
+                <i class="fas fa-calendar"></i>
+
+                <div>
+                    <span>
+                        {{ selected_scan.created_at[:10] if selected_scan.created_at else "Unknown" }}
+                    </span>
+
+                    {% if selected_scan.created_at %}
+                    <small>
+                        {{ selected_scan.created_at[11:16] }}
+                    </small>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="hero-info-card">
+                <i class="fas fa-tag"></i>
+
+                <div>
+                    <span>
+                        {% if scan_type == "security" %}
+                            Security Scan
+                        {% elif scan_type == "web" %}
+                            Web Scan
+                        {% elif scan_type == "cve" %}
+                            CVE Scan
+                        {% elif scan_type == "port" %}
+                            Port Scan
+                        {% else %}
+                            Scan
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- META -->
+        <div class="hero-meta-row">
+
+            {% if results.scan_mode_label %}
+            <span class="hero-meta-tag">
+                <i class="fas fa-radar"></i>
+                {{ results.scan_mode_label }}
+            </span>
+            {% endif %}
+
+            {% if results.authentication %}
+            <span class="hero-meta-tag auth-ok">
+                <i class="fas fa-key"></i>
+                {{ results.authentication.type_label }}
+                {{ results.authentication.status }}
+            </span>
+            {% endif %}
+
+        </div>
+
+    </div>
+
+    <!-- MIDDLE -->
+    <div class="hero-sev-block">
+
+        <p class="hero-block-label">
+            Severity Breakdown
+        </p>
+
+        <div class="hero-sev-strip">
+
+            {% for item in results.severity_breakdown %}
+                <div class="hero-sev-cell severity-soft-{{ item.key }}">
+                    <strong>{{ item.count }}</strong>
+                    <span>{{ item.label }}</span>
+                </div>
+            {% endfor %}
+
+        </div>
+
+    </div>
+
+    <!-- RIGHT -->
+    <div class="hero-score-block">
+
+        <div class="score-gauge risk-{{ risk_class }}"
+             style="--score: {{ results.risk_score }}%;">
+
+            <div>
+                <strong>{{ results.risk_score }}</strong>
+                <span>/100</span>
+            </div>
+
+        </div>
+
+        <p>Security Score</p>
+
+        <span class="risk-label {{ risk_class }}">
+            {{ results.risk_level }}
+        </span>
+
+    </div>
+
+</section>
+
+                {# ── VERTICAL METRICS ── #}
+               <section class="result-metrics-vertical">
+
+    <!-- OPEN PORTS -->
+    <article class="metric-tile-v">
+
+        <div class="metric-top">
+
+            <div class="metric-icon-v"
+                 style="color:#4f46e5;background:#eef2ff;">
+                <i class="fas fa-globe"></i>
+            </div>
+
+            <div class="metric-info-v">
+                <span>Open Ports</span>
+
+                <strong>
+                    {{ results.summary.open_ports }}
+                </strong>
+            </div>
+
+        </div>
+
+        <small>
+            {{ "Active ports found" if results.summary.open_ports else "No active ports" }}
+        </small>
+
+    </article>
+
+    <!-- VULNERABILITIES -->
+    <article class="metric-tile-v">
+
+        <div class="metric-top">
+
+            <div class="metric-icon-v"
+                 style="color:#7c3aed;background:#f3e8ff;">
+                <i class="fas fa-shield-halved"></i>
+            </div>
+
+            <div class="metric-info-v">
+                <span>Vulnerabilities</span>
+
+                <strong>
+                    {{ results.summary.vulnerabilities }}
+                </strong>
+            </div>
+
+        </div>
+
+        <small>
+            {{ "CVE matches found" if results.summary.vulnerabilities else "No CVEs found" }}
+        </small>
+
+    </article>
+
+    <!-- WEB PATHS -->
+    <article class="metric-tile-v">
+
+        <div class="metric-top">
+
+            <div class="metric-icon-v"
+                 style="color:#2563eb;background:#dbeafe;">
+                <i class="fas fa-link"></i>
+            </div>
+
+            <div class="metric-info-v">
+                <span>Web Paths</span>
+
+                <strong>
+                    {{ results.summary.web_paths }}
+                </strong>
+            </div>
+
+        </div>
+
+        <small>
+            {{ "Interesting paths found" if results.summary.web_paths else "No interesting paths" }}
+        </small>
+
+    </article>
+
+    <!-- MISSING UPDATES -->
+    <article class="metric-tile-v">
+
+        <div class="metric-top">
+
+            <div class="metric-icon-v"
+                 style="color:#635bff;background:#ede9fe;">
+                <i class="fas fa-arrows-rotate"></i>
+            </div>
+
+            <div class="metric-info-v">
+                <span>Missing Updates</span>
+
+                <strong>
+                    {{ results.summary.missing_updates }}
+                </strong>
+            </div>
+
+        </div>
+
+        <small>
+            {{ "Updates need review" if results.summary.missing_updates else "All up to date" }}
+        </small>
+
+    </article>
+
+
+</section>
+               
+
+
+                {# ── AI ANALYSIS ── #}
+                {% if results.ai %}
+                    <section class="panel-card ai-panel">
+                        <div class="ai-panel-head">
                             <div>
-                                <strong>{{ results.risk_score }}</strong>
-                                <span>/100</span>
+                                <span>AI Analyst</span>
+                                <h3>Scan Intelligence</h3>
+                            </div>
+                            <i class="fas fa-wand-magic-sparkles"></i>
+                        </div>
+                        <p class="ai-summary">{{ results.ai.summary }}</p>
+                        {% if results.ai.tags %}
+                            <div class="ai-tag-row">
+                                {% for tag in results.ai.tags %}
+                                    <span>{{ tag.tag }} <b>{{ tag.count }}</b></span>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+
+                        <div class="ai-bottom-grid">
+
+                            <div class="ai-chat" data-scan-id="{{ selected_scan.id }}">
+                                <div class="ai-chat-header">
+    <span class="ai-chat-badge">
+        <i class="fas fa-robot"></i>
+        Vulnix AI
+    </span>
+
+    <button type="button" id="aiClearBtn" title="Clear chat">
+        Clear Chat
+    </button>
+</div>
+                                <div class="ai-suggestions">
+                                    {% for question in results.ai.suggested_questions %}
+                                        <button type="button" data-question="{{ question }}">{{ question }}</button>
+                                    {% endfor %}
+                                </div>
+                                <div class="ai-chat-log" id="aiChatLog">
+                                    <div class="ai-message bot">
+                                        Ask about <strong>risk</strong>, <strong>CVEs</strong>, <strong>attack paths</strong>,
+                                        <strong>remediation scripts</strong>, or <strong>false positives</strong>.
+                                    </div>
+                                </div>
+                                <div class="ai-chat-form">
+                                    <input id="aiQuestion" type="text" placeholder="Ask anything about this scan…" autocomplete="off">
+                                    <button type="button" id="aiAskButton">Send</button>
+                                </div>
                             </div>
                         </div>
-                        <p>Security Score</p>
-                        <span class="risk-label {{ risk_class }}">{{ results.risk_level }}</span>
-                    </div>
-                </section>
+                    </section>
+                {% endif %}
 
-                <section class="result-metrics">
-                    <article class="metric-tile">
-                        <i class="fas fa-globe"></i>
-                        <div>
-                            <span>Open Ports</span>
-                            <strong>{{ results.summary.open_ports }}</strong>
-                            <small>{{ "Active ports found" if results.summary.open_ports else "No active ports" }}</small>
-                        </div>
-                    </article>
-                    <article class="metric-tile">
-                        <i class="fas fa-shield-halved"></i>
-                        <div>
-                            <span>Vulnerabilities</span>
-                            <strong>{{ results.summary.vulnerabilities }}</strong>
-                            <small>{{ "CVE matches found" if results.summary.vulnerabilities else "No CVEs found" }}</small>
-                        </div>
-                    </article>
-                    <article class="metric-tile">
-                        <i class="fas fa-link"></i>
-                        <div>
-                            <span>Web Paths</span>
-                            <strong>{{ results.summary.web_paths }}</strong>
-                            <small>{{ "Interesting paths found" if results.summary.web_paths else "No interesting paths" }}</small>
-                        </div>
-                    </article>
-                    <article class="metric-tile">
-                        <i class="fas fa-arrows-rotate"></i>
-                        <div>
-                            <span>Missing Updates</span>
-                            <strong>{{ results.summary.missing_updates }}</strong>
-                            <small>{{ "Updates need review" if results.summary.missing_updates else "No missing updates" }}</small>
-                        </div>
-                    </article>
-                    <article class="metric-tile">
-                        <i class="fas fa-clipboard-list"></i>
-                        <div>
-                            <span>Scanned Items</span>
-                            <strong>{{ results.summary.scanned_items }}</strong>
-                            <small>Total items scanned</small>
-                        </div>
-                    </article>
-                </section>
-
+                 {# ── SCAN INVENTORY + RECOMMENDATIONS ── #}
                 <section class="result-panels">
                     <article class="panel-card inventory-panel">
                         <div class="panel-title">
@@ -271,182 +518,8 @@
                             <p class="muted-copy">No immediate actions were generated for this scan.</p>
                         {% endif %}
                     </article>
-                </section>
-
-                <section class="findings-overview panel-card">
-                    <h3>Findings Overview</h3>
-                    <div class="finding-circles">
-                        {% for item in results.severity_breakdown %}
-                            <div class="finding-circle-card">
-                                <div class="mini-ring severity-ring-{{ item.key }}" style="--percent: {{ item.percent }}%;">
-                                    <span>{{ item.count }}</span>
-                                </div>
-                                <div>
-                                    <b>{{ item.label }}</b>
-                                    <small>{{ item.percent }}%</small>
-                                </div>
-                            </div>
-                        {% endfor %}
-                    </div>
-                    <div class="total-findings">
-                        <div class="donut-ring" style="--ring: {{ results.severity_ring_style }};"></div>
-                        <div>
-                            <span>Total Findings</span>
-                            <strong>{{ results.summary.findings }}</strong>
-                            <small>100%</small>
-                        </div>
-                    </div>
-                </section>
-
-                {% if results.ai %}
-                    <section class="panel-card ai-panel">
-                        <div class="ai-panel-head">
-                            <div>
-                                <span>AI Analyst</span>
-                                <h3>Scan Intelligence</h3>
-                            </div>
-                            <i class="fas fa-wand-magic-sparkles"></i>
-                        </div>
-                        <p class="ai-summary">{{ results.ai.summary }}</p>
-                        {% if results.ai.tags %}
-                            <div class="ai-tag-row">
-                                {% for tag in results.ai.tags %}
-                                    <span>{{ tag.tag }} <b>{{ tag.count }}</b></span>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
-                        <div class="ai-grid">
-                            <div>
-                                <h4>Remediation Plan</h4>
-                                <ol class="ai-plan">
-                                    {% for step in results.ai.remediation_plan %}
-                                        <li>
-                                            <b>{{ step.severity }} - {{ step.title }}</b>
-                                            <span>{{ step.action }}</span>
-                                        </li>
-                                    {% endfor %}
-                                </ol>
-                            </div>
-                            <div>
-                                <h4>Attack Paths</h4>
-                                <div class="ai-path-list">
-                                    {% for path in results.ai.attack_paths %}
-                                        <div>
-                                            <b>{{ path.name }}</b>
-                                            <span>{{ path.path }}</span>
-                                        </div>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        </div>
-                        <div class="ai-grid">
-                            <div>
-                                <h4>False Positive Review</h4>
-                                <div class="ai-path-list">
-                                    {% for item in results.ai.false_positive_review %}
-                                        <div>
-                                            <b>{{ item.title }}</b>
-                                            <span>{{ item.reason }}</span>
-                                        </div>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                            <div class="ai-chat" data-scan-id="{{ selected_scan.id }}">
-                                <div class="ai-chat-header">
-                                    <span class="ai-chat-badge">&#x1F9E0; AI Analyst</span>
-                                    <button type="button" id="aiClearBtn" title="Clear chat">&#x21BA; Clear</button>
-                                </div>
-                                <div class="ai-suggestions">
-                                    {% for question in results.ai.suggested_questions %}
-                                        <button type="button" data-question="{{ question }}">{{ question }}</button>
-                                    {% endfor %}
-                                </div>
-                                <div class="ai-chat-log" id="aiChatLog">
-                                    <div class="ai-message bot">
-                                        Ask about <strong>risk</strong>, <strong>CVEs</strong>, <strong>attack paths</strong>,
-                                        <strong>remediation scripts</strong>, or <strong>false positives</strong>.
-                                    </div>
-                                </div>
-                                <div class="ai-chat-form">
-                                    <input id="aiQuestion" type="text" placeholder="Ask anything about this scan&#x2026;" autocomplete="off">
-                                    <button type="button" id="aiAskButton">Send</button>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-                {% endif %}
-                    
-                
-
-                {% if results.authentication %}
-                    <section class="panel-card auth-panel">
-                        <div class="panel-title">
-                            <i class="fas fa-key"></i>
-                            <h3>Credentialed Checks</h3>
-                        </div>
-                        <p><b>Status:</b> {{ results.authentication.message }}</p>
-                        <p><b>Credential Type:</b> {{ results.authentication.type_label }}</p>
-                        <p><b>Username:</b> {{ results.authentication.username }}</p>
-                        {% if results.authentication.checks %}
-                            <ul class="auth-check-list">
-                                {% for check in results.authentication.checks %}
-                                    <li class="auth-check auth-check-{{ check.status }}">
-                                        <b>{{ check.name }}</b>
-                                        <span>{{ check.detail }}</span>
-                                    </li>
-                                {% endfor %}
-                            </ul>
-                        {% endif %}
-                    </section>
-                {% endif %}
-
-                <section class="result-panels">
-                    <article class="panel-card">
-                        <div class="panel-title">
-                            <i class="fas fa-network-wired"></i>
-                            <h3>Open Ports</h3>
-                        </div>
-                        {% if results.open_ports %}
-                            <div class="details-list">
-                                {% for port in results.open_ports %}
-                                    <div class="detail-row static-row">
-                                        <span class="severity-tag severity-soft-{{ port.severity|lower }}">{{ port.severity }}</span>
-                                        <b>{{ (port.protocol or "tcp")|upper }} {{ port.port }} / {{ port.service }}</b>
-                                        <small>
-                                            {{ port.product or "Unknown product" }}
-                                            {% if port.version %} {{ port.version }}{% endif %}
-                                            - {{ port.scan_method or "tcp_connect" }}
-                                            - {{ port.cve_count }} CVE(s)
-                                        </small>
-                                    </div>
-                                {% endfor %}
-                            </div>
-                        {% else %}
-                            <p class="muted-copy">No open ports found.</p>
-                        {% endif %}
-                    </article>
-
-                    <article class="panel-card">
-                        <div class="panel-title">
-                            <i class="fas fa-link"></i>
-                            <h3>Web Paths</h3>
-                        </div>
-                        {% if results.web_paths %}
-                            <div class="details-list">
-                                {% for path in results.web_paths %}
-                                    <div class="detail-row static-row">
-                                        <span class="severity-tag severity-soft-info">INFO</span>
-                                        <b>{{ path.path }}</b>
-                                        <small>HTTP {{ path.status }} - {{ path.url }}</small>
-                                    </div>
-                                {% endfor %}
-                            </div>
-                        {% else %}
-                            <p class="muted-copy">No interesting paths found.</p>
-                        {% endif %}
-                    </article>
-                </section>
-
+                </section> 
+                {# ── SCANNED ITEMS ── #}
                 <section class="panel-card details-panel">
                     <div class="panel-title">
                         <i class="fas fa-list"></i>
@@ -473,16 +546,12 @@
                                         {% endif %}
                                         {% if item.ai %}
                                             <div class="ai-item-box">
-
                                                 <h4>AI Explanation</h4>
                                                 <p>{{ item.ai.explanation }}</p>
-
                                                 <h4>Impact</h4>
                                                 <p>{{ item.ai.impact }}</p>
-
                                                 <h4>Suggested Fix</h4>
                                                 <p>{{ item.ai.fix }}</p>
-
                                                 <button
                                                     class="ai-fix-btn"
                                                     onclick="generateFix(this)"
@@ -490,11 +559,9 @@
                                                     data-description="{{ item.description }}"
                                                     data-severity="{{ item.severity }}"
                                                 >
-                                                    🤖 Generate AI Remediation
+                                                    Generate AI Remediation
                                                 </button>
-
                                                 <div class="ai-fix-output"></div>
-
                                                 {% if item.ai.tags %}
                                                     <div class="ai-tag-row compact">
                                                         {% for tag in item.ai.tags %}
@@ -502,12 +569,10 @@
                                                         {% endfor %}
                                                     </div>
                                                 {% endif %}
-
                                                 <p class="fp-note">
                                                     False positive likelihood: <b>{{ item.ai.false_positive }}</b>.
                                                     {{ item.ai.false_positive_reason }}
                                                 </p>
-
                                             </div>
                                         {% endif %}
                                         {% if item.cves %}
@@ -539,10 +604,57 @@
                     {% endif %}
                 </section>
 
+                {% if results.authentication %}
+<section class="panel-card auth-panel-new">
+
+    <div class="panel-title">
+        <i class="fas fa-key"></i>
+        <h3>Credentialed Checks</h3>
+    </div>
+
+    <div class="auth-simple-row">
+
+        <div class="auth-pill success">
+            <i class="fas fa-circle-check"></i>
+
+            <span>
+                {{ results.authentication.type_label }}
+            </span>
+        </div>
+
+        <div class="auth-pill neutral">
+            <i class="fas fa-shield"></i>
+
+            <span>
+                {{ results.authentication.message }}
+            </span>
+        </div>
+
+    </div>
+
+    {% if results.authentication.checks %}
+    <div class="auth-check-mini-list">
+
+        {% for check in results.authentication.checks[:3] %}
+
+        <div class="auth-mini-item {{ check.status }}">
+            <i class="fas fa-check"></i>
+
+            <span>
+                {{ check.name }}
+            </span>
+        </div>
+
+        {% endfor %}
+
+    </div>
+    {% endif %}
+
+</section>
+{% endif %}
             {% elif scan_type == "web" and results is mapping %}
                 <section class="generic-result-card">
                     <div class="scan-title-row">
-                        <a class="return-icon" href="{{ url_for('asset_page') }}"><i class="fas fa-arrow-left"></i></a>
                         <span>Scan Results</span>
                         <strong class="status-badge done"><i class="fas fa-check"></i> Done</strong>
                     </div>
@@ -559,7 +671,6 @@
             {% elif scan_type == "cve" %}
                 <section class="generic-result-card">
                     <div class="scan-title-row">
-                        <a class="return-icon" href="{{ url_for('asset_page') }}"><i class="fas fa-arrow-left"></i></a>
                         <span>Scan Results</span>
                         <strong class="status-badge done"><i class="fas fa-check"></i> Done</strong>
                     </div>
@@ -583,7 +694,6 @@
             {% else %}
                 <section class="generic-result-card">
                     <div class="scan-title-row">
-                        <a class="return-icon" href="{{ url_for('asset_page') }}"><i class="fas fa-arrow-left"></i></a>
                         <span>Scan Results</span>
                         <strong class="status-badge done"><i class="fas fa-check"></i> Done</strong>
                     </div>
@@ -605,62 +715,23 @@
                 </section>
             {% endif %}
         {% endif %}
+    
+    </div>
+</div>
 
-    </div>{# end result-dashboard #}
-</div>{# end result-layout #}
-
+<!-- Delete Modal -->
 <div id="deleteModal"
-     style="
-        display:none;
-        position:fixed;
-        inset:0;
-        background:rgba(0,0,0,0.45);
-        z-index:9999;
-        align-items:center;
-        justify-content:center;">
-
-    <div style="
-        background:white;
-        padding:24px;
-        border-radius:20px;
-        width:320px;
-        text-align:center;">
-
-        <h3 style="margin-bottom:10px;">
-            Delete Scan
-        </h3>
-
-        <p style="color:#666;margin-bottom:20px;">
-            Are you sure you want to delete this scan?
-        </p>
-
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:white;padding:24px;border-radius:20px;width:320px;text-align:center;">
+        <h3 style="margin-bottom:10px;">Delete Scan</h3>
+        <p style="color:#666;margin-bottom:20px;">Are you sure you want to delete this scan?</p>
         <div style="display:flex;gap:10px;justify-content:center;">
-
-            <button onclick="closeDeleteModal()"
-                    style="
-                        padding:10px 18px;
-                        border:none;
-                        border-radius:10px;
-                        cursor:pointer;">
-                Cancel
-            </button>
-
-            <button id="confirmDeleteBtn"
-                    style="
-                        padding:10px 18px;
-                        background:#ef4444;
-                        color:white;
-                        border:none;
-                        border-radius:10px;
-                        cursor:pointer;">
-                Delete
-            </button>
-
+            <button onclick="closeDeleteModal()" style="padding:10px 18px;border:none;border-radius:10px;cursor:pointer;">Cancel</button>
+            <button id="confirmDeleteBtn" style="padding:10px 18px;background:#ef4444;color:white;border:none;border-radius:10px;cursor:pointer;">Delete</button>
         </div>
     </div>
 </div>
 
-<!-- marked.js for markdown rendering -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script>
 // ── AI Chat ──────────────────────────────────────────────────────────────────
@@ -672,23 +743,16 @@ if (aiChat) {
     const button   = document.getElementById("aiAskButton");
     const clearBtn = document.getElementById("aiClearBtn");
 
-    // Conversation history sent to the server for context
     let conversationHistory = [];
     let isThinking = false;
 
-    // Configure marked for safe output
     if (typeof marked !== "undefined") {
         marked.setOptions({ breaks: true, gfm: true });
     }
 
     function renderMarkdown(text) {
-        if (typeof marked !== "undefined") {
-            return marked.parse(text);
-        }
-        // Plain fallback: escape HTML then linkify newlines
-        return text
-            .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-            .replace(/\n/g,"<br>");
+        if (typeof marked !== "undefined") return marked.parse(text);
+        return text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
     }
 
     function appendMessage(text, type) {
@@ -696,7 +760,6 @@ if (aiChat) {
         item.className = "ai-message " + (type || "");
         if (type === "bot") {
             item.innerHTML = renderMarkdown(text);
-            // Style code blocks
             item.querySelectorAll("pre code, pre").forEach(el => {
                 el.style.cssText = "display:block;background:#0f172a;color:#e2e8f0;padding:10px 12px;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.5;";
             });
@@ -732,12 +795,10 @@ if (aiChat) {
     function askAi(question) {
         const value = (question || input.value || "").trim();
         if (!value || isThinking) return;
-
         appendMessage(value, "user");
         input.value = "";
         setLoading(true);
         showTyping();
-
         fetch(`/scan/${scanId}/ai-chat`, {
             method:  "POST",
             headers: {"Content-Type": "application/json"},
@@ -748,10 +809,8 @@ if (aiChat) {
             hideTyping();
             const answer = d.answer || d.error || "No answer returned.";
             appendMessage(answer, "bot");
-            // Update history for context
             conversationHistory.push({ role: "user",      content: value  });
             conversationHistory.push({ role: "assistant", content: answer });
-            // Keep only last 20 messages (10 turns) to avoid giant payloads
             if (conversationHistory.length > 20) {
                 conversationHistory = conversationHistory.slice(-20);
             }
@@ -775,96 +834,46 @@ if (aiChat) {
 }
 
 let deleteForm = null;
-
 function showDeleteModal(event, form) {
     event.preventDefault();
-
     deleteForm = form;
-
     document.getElementById("deleteModal").style.display = "flex";
-
     return false;
 }
-
 function closeDeleteModal() {
     document.getElementById("deleteModal").style.display = "none";
 }
-
 document.getElementById("confirmDeleteBtn").onclick = function () {
-    if (deleteForm) {
-        deleteForm.submit();
-    }
+    if (deleteForm) deleteForm.submit();
 };
 
-
 async function generateFix(button) {
-
-    const output = button.nextElementSibling
-
-    output.innerHTML = "Generating AI remediation..."
-
+    const output = button.nextElementSibling;
+    output.innerHTML = "Generating AI remediation...";
     const payload = {
         title: button.dataset.title,
         description: button.dataset.description,
         severity: button.dataset.severity
-    }
-
+    };
     try {
-
         const response = await fetch("/generate-fix", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
-        })
-
-        const data = await response.json()
-
+        });
+        const data = await response.json();
         output.innerHTML = `
             <div class="ai-fix-card">
-
                 <h4>${data.title}</h4>
-
                 <p>${data.explanation}</p>
-
                 <strong>Impact</strong>
                 <p>${data.impact}</p>
-
-                ${
-                    data.commands?.length
-                    ? `
-                        <strong>Commands</strong>
-
-                        ${data.commands.map(
-                            cmd => `<pre>${cmd}</pre>`
-                        ).join("")}
-                    `
-                    : ""
-                }
-
-                ${
-                    data.config
-                    ? `
-                        <strong>Config</strong>
-                        <pre>${data.config}</pre>
-                    `
-                    : ""
-                }
-
-            </div>
-        `
-
+                ${data.commands?.length ? `<strong>Commands</strong>${data.commands.map(cmd => `<pre>${cmd}</pre>`).join("")}` : ""}
+                ${data.config ? `<strong>Config</strong><pre>${data.config}</pre>` : ""}
+            </div>`;
     } catch {
-
-        output.innerHTML = `
-            <p style="color:red;">
-                AI remediation failed
-            </p>
-        `
+        output.innerHTML = `<p style="color:red;">AI remediation failed</p>`;
     }
 }
-
-
 </script>
 {% endblock %}

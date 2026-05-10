@@ -7,12 +7,12 @@
     <!-- ══ WELCOME BANNER ══ -->
     <div class="welcome">
         <div class="welcome-left">
-            <h1>Welcome back, {{ user.name.title() }} 👋</h1>
+            <h1>Welcome back, {{ user.name.title() }}</h1>
             <p class="welcome-sub">
                 {% if dashboard_data.severity_counts.critical > 0 %}
-                    ⚠️ {{ dashboard_data.severity_counts.critical }} critical vulnerabilities need your attention
+                    {{ dashboard_data.severity_counts.critical }} critical vulnerabilities need your attention
                 {% else %}
-                    ✅ Your system is stable — no critical threats detected
+                    Your system is stable — no critical threats detected
                 {% endif %}
             </p>
             <div class="welcome-chips">
@@ -108,7 +108,6 @@
             <div class="empty-live">
                 <i class="fas fa-radar"></i>
                 <p>No active scans right now</p>
-
                 <a href="/scan"
                 class="primary-action"
                 style="margin-top:8px;display:inline-block;padding:8px 16px">
@@ -292,7 +291,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
 <script>
-/* ── DATA FROM FLASK ── */
 const SEV = {
     critical: {{ dashboard_data.severity_counts.critical }},
     high:     {{ dashboard_data.severity_counts.high }},
@@ -303,7 +301,6 @@ const TYPE_COUNTS = {{ dashboard_data.scan_type_counts | tojson }};
 const TREND       = {{ dashboard_data.risk_trend | tojson }};
 const RUNNING_IDS = {{ dashboard_data.running_scan_ids | tojson }};
 
-/* ── CHART DEFAULTS ── */
 Chart.defaults.font.family = "'Segoe UI', sans-serif";
 Chart.defaults.plugins.legend.display = false;
 Chart.defaults.plugins.tooltip.backgroundColor = '#0f172a';
@@ -313,7 +310,6 @@ Chart.defaults.plugins.tooltip.padding = 10;
 Chart.defaults.plugins.tooltip.cornerRadius = 8;
 Chart.defaults.animation.duration = 700;
 
-/* ── SEVERITY DONUT ── */
 new Chart(document.getElementById('sevDonut'), {
     type: 'doughnut',
     data: {
@@ -335,7 +331,6 @@ new Chart(document.getElementById('sevDonut'), {
     }
 });
 
-/* ── SEVERITY BARS ANIMATION ── */
 setTimeout(() => {
     document.querySelectorAll('.sev-bar').forEach(bar => {
         const val = parseInt(bar.dataset.val) || 0;
@@ -344,7 +339,6 @@ setTimeout(() => {
     });
 }, 200);
 
-/* ── SCANS BY TYPE BAR ── */
 new Chart(document.getElementById('typeChart'), {
     type: 'bar',
     data: {
@@ -371,7 +365,6 @@ new Chart(document.getElementById('typeChart'), {
     }
 });
 
-/* ── RISK TREND LINE ── */
 new Chart(document.getElementById('trendChart'), {
     type: 'line',
     data: {
@@ -423,10 +416,6 @@ new Chart(document.getElementById('trendChart'), {
     }
 });
 
-/* ═══════════════════════════════════════════
-   LIVE SCAN POLLING
-   Polls /api/scan_status/<id> every 2 seconds
-   ═══════════════════════════════════════════ */
 const TYPE_COLORS = {
     security: '#7f30cb', web: '#01dcba', port: '#3b82f6', cve: '#ef4444'
 };
@@ -486,7 +475,6 @@ async function updateLivePanel() {
     const indicator = document.getElementById('live-indicator');
     const subtitle  = document.getElementById('live-subtitle');
 
-    // Fetch all running scans from server
     let activeScans = [];
     try {
         const r = await fetch('/api/active_scans');
@@ -512,16 +500,13 @@ async function updateLivePanel() {
     document.getElementById('running-count').textContent = activeScans.length;
     document.getElementById('running-badge').textContent = 'Live';
 
-    // Build / update rows
     const existing = new Set([...container.querySelectorAll('[id^="scan-row-"]')].map(el => el.id));
     const incoming = new Set(activeScans.map(s => `scan-row-${s.id}`));
 
-    // Add new rows
     for (const scan of activeScans) {
         if (!document.getElementById(`scan-row-${scan.id}`)) {
             container.insertAdjacentHTML('beforeend', buildScanRow(scan));
         } else {
-            // Update existing
             const fillEl  = document.getElementById(`fill-${scan.id}`);
             const pctEl   = document.getElementById(`pct-${scan.id}`);
             const etaEl   = document.getElementById(`eta-${scan.id}`);
@@ -533,13 +518,11 @@ async function updateLivePanel() {
             if (phaseEl) phaseEl.textContent   = scan.phase || '';
         }
     }
-    // Remove finished
     for (const oldId of existing) {
         if (!incoming.has(oldId)) document.getElementById(oldId)?.remove();
     }
 }
 
-// Start polling
 updateLivePanel();
 setInterval(updateLivePanel, 2500);
 </script>

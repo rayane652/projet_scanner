@@ -36,7 +36,6 @@
 
             <form class="scan-form" action="/run_scan" method="POST">
 
-                <!-- hidden for backend -->
                 <input type="hidden" name="scan_mode" id="scan-mode-hidden" value="unauthenticated">
 
                 <div class="grid-2">
@@ -58,7 +57,7 @@
 
                     <label class="field full-row">
                         <span>Scan Type <i class="fas fa-info-circle"></i></span>
-                        <div class="input-box ">
+                        <div class="input-box">
                             <i class="fas fa-shield-alt left-icon"></i>
                             <select name="type" id="scan-type">
                                 <option value="security">Security Scan</option>
@@ -68,30 +67,59 @@
                         </div>
                     </label>
 
+                    <!-- REDESIGNED ENGINE BOX -->
                     <div class="engine-box full-row">
                         <div class="engine-header">
-                            <span><i class="fas fa-network-wired"></i> Scan Engine</span>
-                            <label class="engine-toggle">
-                                <input type="checkbox" name="include_udp" value="1">
-                                <span>UDP</span>
-                            </label>
+                            <div class="engine-header-left">
+                                <i class="fas fa-network-wired"></i>
+                                <span>Scan Engine</span>
+                            </div>
+                            <!-- UDP Toggle -->
+                           <!-- UDP Toggle -->
+<label class="proto-toggle-wrap">
+    <input type="checkbox" name="include_udp" value="1" id="udp-checkbox">
+
+    <div class="udp-toggle">
+        <span>UDP Scan</span>
+
+        <div class="udp-switch">
+            <div class="udp-circle"></div>
+        </div>
+    </div>
+</label>
                         </div>
 
-                        <div class="grid-2 engine-grid">
-                            <label class="field">
-                                <span>TCP Method</span>
-                                <div class="input-box">
-                                    <i class="fas fa-wave-square left-icon"></i>
-                                    <select name="tcp_scan_method">
-                                        <option value="connect">TCP Connect</option>
-                                        <option value="syn">SYN Scan</option>
-                                    </select>
+                        <div class="engine-body">
+                            <!-- TCP Method selector — pill style -->
+                            <div class="tcp-method-group">
+                                <span class="tcp-method-label">TCP Method</span>
+                                <div class="tcp-pills">
+                                    <label class="tcp-pill">
+                                        <input type="radio" name="tcp_scan_method" value="connect" checked>
+                                        <span>
+                                            <i class="fas fa-plug"></i>
+                                            TCP Connect
+                                        </span>
+                                    </label>
+                                    <label class="tcp-pill">
+                                        <input type="radio" name="tcp_scan_method" value="syn">
+                                        <span>
+                                            <i class="fas fa-bolt"></i>
+                                            SYN Scan
+                                        </span>
+                                    </label>
                                 </div>
-                            </label>
+                            </div>
 
-                            <div class="engine-note">
-                                <b>Fingerprinting</b>
-                                <span>Service banners, version detection and OS hints.</span>
+                            <!-- Fingerprinting info -->
+                            <div class="engine-fingerprint">
+                                <div class="fingerprint-icon">
+                                    <i class="fas fa-fingerprint"></i>
+                                </div>
+                                <div>
+                                    <b>Fingerprinting</b>
+                                    <span>Service banners, version detection and OS hints.</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -109,7 +137,7 @@
                         </label>
                     </div>
 
-                    <div class="grid-2">
+                    <div class="grid-2" id="cred-fields-inner">
 
                         <label class="field">
                             <span>Username</span>
@@ -127,19 +155,44 @@
                             </div>
                         </label>
 
-                        <label class="field">
+                        <label class="field full-row">
                             <span>Credential Type</span>
-                            <div class="input-box">
-                                <i class="fas fa-id-card left-icon"></i>
-                                <select name="auth_type" id="auth-type-select">
-                                    <option value="http_basic">🌐 HTTP Basic</option>
-                                    <option value="ssh">🐧 SSH (Linux/Unix)</option>
-                                    <option value="winrm">🪟 Windows (WinRM)</option>
-                                </select>
+                            <div class="cred-type-pills">
+                                <label class="cred-type-pill">
+                                    <input type="radio" name="auth_type" value="http_basic" checked>
+                                    <span>
+                                        <i class="fas fa-globe"></i>
+                                        HTTP Basic
+                                    </span>
+                                </label>
+                                <label class="cred-type-pill">
+                                    <input type="radio" name="auth_type" value="ssh">
+                                    <span>
+                                        <i class="fas fa-terminal"></i>
+                                        SSH (Linux/Unix)
+                                    </span>
+                                </label>
+                                <label class="cred-type-pill">
+                                    <input type="radio" name="auth_type" value="winrm">
+                                    <span>
+                                        <i class="fas fa-desktop"></i>
+                                        Windows (WinRM)
+                                    </span>
+                                </label>
                             </div>
                         </label>
 
-                        <label class="field" id="auth-port-field">
+                        <!-- HTTP Basic: URL field -->
+                        <label class="field full-row" id="http-url-field" style="display:none;">
+                            <span>Target URL <small style="font-weight:400;opacity:.7;">(for HTTP Basic auth)</small></span>
+                            <div class="input-box">
+                                <i class="fas fa-link left-icon"></i>
+                                <input type="text" name="auth_http_url" placeholder="http://192.168.1.1/admin">
+                            </div>
+                        </label>
+
+                        <!-- Port field (SSH / WinRM only) -->
+                        <label class="field" id="auth-port-field" style="display:none;">
                             <span id="auth-port-label">Port</span>
                             <div class="input-box">
                                 <i class="fas fa-plug left-icon"></i>
@@ -148,7 +201,8 @@
                             </div>
                         </label>
 
-                        <label class="field full" id="ssh-key-field" style="display:none;">
+                        <!-- SSH Key (SSH only) -->
+                        <label class="field full-row" id="ssh-key-field" style="display:none;">
                             <span>SSH Private Key <small style="font-weight:400;opacity:.7;">(optional — overrides password)</small></span>
                             <div class="input-box" style="height:auto;">
                                 <i class="fas fa-key left-icon" style="top:14px;"></i>
@@ -174,7 +228,6 @@
     <!-- RIGHT SIDE -->
     <aside class="scan-side">
 
-        <!-- SCAN OVERVIEW -->
         <div class="side-card">
             <h4 class="side-title">SCAN OVERVIEW</h4>
 
@@ -211,7 +264,6 @@
             </div>
         </div>
 
-        <!-- WHAT THIS SCAN DOES -->
         <div class="side-card2">
 
             <h4 class="side2-title">WHAT THIS SCAN DOES</h4>
@@ -238,42 +290,42 @@
 
 </div>
 
-<!-- SCRIPT -->
 <script>
-const toggle       = document.getElementById("auth-toggle");
-const hiddenInput  = document.getElementById("scan-mode-hidden");
-const authType     = document.getElementById("auth-type-select");
-const portField    = document.getElementById("auth-port-field");
-const portInput    = document.getElementById("auth-port-input");
-const portLabel    = document.getElementById("auth-port-label");
-const sshKeyField  = document.getElementById("ssh-key-field");
+const toggle      = document.getElementById("auth-toggle");
+const hiddenInput = document.getElementById("scan-mode-hidden");
+const credInner   = document.getElementById("cred-fields-inner");
 
-const AUTH_PORTS = { ssh: "22", winrm: "5985", http_basic: "" };
-const PORT_LABELS = { ssh: "SSH Port", winrm: "WinRM Port", http_basic: "Port" };
+const portField   = document.getElementById("auth-port-field");
+const portInput   = document.getElementById("auth-port-input");
+const portLabel   = document.getElementById("auth-port-label");
+const sshKeyField = document.getElementById("ssh-key-field");
+const httpUrlField= document.getElementById("http-url-field");
 
-const allInputs = document.querySelectorAll(
-    'input[name="auth_username"], input[name="auth_password"], ' +
-    'select[name="auth_type"], input[name="auth_port"], textarea[name="auth_ssh_key"]'
-);
+const AUTH_PORTS  = { ssh: "22", winrm: "5985", http_basic: "" };
+const PORT_LABELS = { ssh: "SSH Port", winrm: "WinRM Port", http_basic: "" };
+
+const allInputs = credInner.querySelectorAll("input, select, textarea");
+
+function getAuthType() {
+    const checked = document.querySelector('input[name="auth_type"]:checked');
+    return checked ? checked.value : "http_basic";
+}
 
 function applyAuthType() {
-    const type    = authType.value;
+    const type    = getAuthType();
     const enabled = toggle.checked;
 
-    // Show/hide port field (hide for http_basic)
-    portField.style.display = (type !== "http_basic") ? "" : "none";
-    portLabel.textContent   = PORT_LABELS[type] || "Port";
+    // HTTP Basic: show URL field, hide port & ssh key
+    httpUrlField.style.display  = (type === "http_basic") ? "" : "none";
+    portField.style.display     = (type !== "http_basic") ? "" : "none";
+    sshKeyField.style.display   = (type === "ssh") ? "" : "none";
 
-    // Set default port placeholder
-    if (!portInput.value || Object.values(AUTH_PORTS).includes(portInput.value)) {
+    if (portLabel) portLabel.textContent = PORT_LABELS[type] || "Port";
+    if (portInput && (!portInput.value || Object.values(AUTH_PORTS).includes(portInput.value))) {
         portInput.value       = "";
         portInput.placeholder = AUTH_PORTS[type] || "";
     }
 
-    // Show SSH key only for SSH
-    sshKeyField.style.display = (type === "ssh") ? "" : "none";
-
-    // Disable all if toggle is off
     allInputs.forEach(el => {
         el.disabled      = !enabled;
         el.style.opacity = enabled ? "1" : "0.5";
@@ -285,7 +337,11 @@ toggle.addEventListener("change", () => {
     applyAuthType();
 });
 
-authType.addEventListener("change", applyAuthType);
+document.querySelectorAll('input[name="auth_type"]').forEach(radio => {
+    radio.addEventListener("change", applyAuthType);
+});
+
+
 
 // Init
 toggle.dispatchEvent(new Event("change"));

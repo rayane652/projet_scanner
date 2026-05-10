@@ -1,4 +1,3 @@
-
 .scan-layout {
     all: unset;
     display: grid;
@@ -207,8 +206,9 @@
     background: #fafafa;
 }
 
+/* ═══ REDESIGNED ENGINE BOX ═══ */
 .engine-box {
-    padding: 16px;
+    padding: 18px;
     border: 1px solid #e5e7eb;
     border-radius: 14px;
     background: #f8fafc;
@@ -218,56 +218,220 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 14px;
+    margin-bottom: 18px;
+}
+
+.engine-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 13px;
     font-weight: 700;
     color: #334155;
 }
 
-.engine-header i {
+.engine-header-left i {
     color: #2563eb;
-    margin-right: 6px;
+    font-size: 14px;
 }
 
-.engine-grid {
-    align-items: stretch;
+
+/* UDP TOGGLE */
+.proto-toggle-wrap{
+    cursor:pointer;
 }
 
-.engine-toggle {
+.proto-toggle-wrap input{
+    display:none;
+}
+
+.udp-toggle{
+    display:flex;
+    align-items:center;
+    gap:12px;
+}
+
+.udp-toggle span{
+    font-size:12px;
+    font-weight:700;
+    color:#475569;
+}
+
+.udp-switch{
+    position:relative;
+
+    width:52px;
+    height:28px;
+
+    border-radius:999px;
+
+    background:#dbe2ec;
+
+    transition:0.25s ease;
+}
+
+.udp-circle{
+    position:absolute;
+
+    top:3px;
+    left:3px;
+
+    width:22px;
+    height:22px;
+
+    border-radius:50%;
+
+    background:#ffffff;
+
+    box-shadow:0 2px 6px rgba(0,0,0,0.12);
+
+    transition:0.25s ease;
+}
+
+/* ACTIVE */
+.proto-toggle-wrap input:checked + .udp-toggle .udp-switch{
+    background:linear-gradient(135deg,#4f46e5,#7c3aed);
+}
+
+.proto-toggle-wrap input:checked + .udp-toggle .udp-circle{
+    transform:translateX(24px);
+}
+
+/* ── Engine body ── */
+.engine-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    align-items: start;
+}
+
+/* TCP Method pills */
+.tcp-method-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tcp-method-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.tcp-pills {
+    display: flex;
+    gap: 8px;
+}
+
+.tcp-pill input {
+    display: none;
+}
+
+.tcp-pill span {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    border: 1.5px solid #e5e7eb;
+    background: #ffffff;
     font-size: 12px;
-    color: #475569;
+    font-weight: 600;
+    color: #64748b;
     cursor: pointer;
+    transition: all 0.18s;
 }
 
-.engine-toggle input {
-    width: 18px;
-    height: 18px;
-    accent-color: #2563eb;
+.tcp-pill span i {
+    font-size: 11px;
 }
 
-.engine-note {
-    min-height: 44px;
+.tcp-pill input:checked + span {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+}
+
+.tcp-pill span:hover {
+    border-color: #bfdbfe;
+    color: #1d4ed8;
+}
+
+/* Fingerprinting info block */
+.engine-fingerprint {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
     padding: 12px 14px;
     border: 1px solid #dbeafe;
     border-radius: 10px;
     background: #eff6ff;
     color: #1e3a8a;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
 }
 
-.engine-note b {
+.fingerprint-icon {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    background: #dbeafe;
+    color: #2563eb;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.engine-fingerprint b {
+    display: block;
     font-size: 13px;
+    margin-bottom: 2px;
 }
 
-.engine-note span {
-    font-size: 12px;
-    margin: 2px 0 0;
+.engine-fingerprint span {
+    font-size: 11px;
     color: #475569;
+    line-height: 1.4;
+}
+
+/* ═══ CREDENTIAL TYPE PILLS ═══ */
+.cred-type-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.cred-type-pill input {
+    display: none;
+}
+
+.cred-type-pill span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    border: 1.5px solid #e5e7eb;
+    background: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.18s;
+}
+
+.cred-type-pill span i {
+    font-size: 12px;
+}
+
+.cred-type-pill input:checked + span {
+    background: #f5f3ff;
+    border-color: #a78bfa;
+    color: #6d28d9;
+}
+
+.cred-type-pill span:hover {
+    border-color: #c4b5fd;
+    color: #6d28d9;
 }
 
 /* HEADER */
