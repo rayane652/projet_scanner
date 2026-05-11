@@ -44,3 +44,15 @@ def run_vuln_scan(target, scan_method="connect", include_udp=False):
         })
 
     return final_results
+
+from modules.cve_scanner import search_cves
+
+# Quand tu détectes un service
+service_name = "nginx"  # exemple
+service_version = "1.18.0"
+
+cves = search_cves(service_name, service_version)
+if cves:
+    print(f"Found {len(cves)} CVEs for {service_name}")
+    for cve in cves:
+        print(f"  - {cve['id']}: {cve['severity']}")
