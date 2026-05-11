@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}">
+{% endblock %}
+
+{% block content %}
+
+<div class="compare-container">
+    
+    <!-- Header -->
+    <div class="compare-header">
+        <h1><i class="fas fa-chart-line"></i> Security Drift Detection</h1>
+        <p>Compare two scans to visualize your security evolution</p>
+    </div>
+
+    <!-- Selection Panel -->
+    <div class="selection-panel">
+        <div class="selection-card">
+            <div class="selection-label">
+                <span class="badge before">📅 Before Scan</span>
+                <span id="clearBefore" class="clear-selection" style="display:none">✕</span>
+            </div>
+            <div id="selectedBefore" class="selected-scan-placeholder" style="cursor:pointer;">
+                <i class="fas fa-search"></i> Select a scan
+            </div>
+        </div>
+
+        <div class="vs-divider"><span>VS</span></div>
+
+        <div class="selection-card">
+            <div class="selection-label">
+                <span class="badge after">📅 After Scan</span>
+                <span id="clearAfter" class="clear-selection" style="display:none">✕</span>
+            </div>
+            <div id="selectedAfter" class="selected-scan-placeholder" style="cursor:pointer;">
+                <i class="fas fa-search"></i> Select a scan
+            </div>
+        </div>
+    </div>
+
+    <!-- Scan Selection Modal (simple) -->
+    <div id="scanModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:#1e293b; border-radius:16px; width:400px; max-width:90%; max-height:80%; overflow:hidden;">
+            <div style="padding:16px; border-bottom:1px solid #334155; display:flex; justify-content:space-between;">
+                <span style="color:white; font-weight:600;">Select a scan</span>
+                <button onclick="closeModal()" style="background:none; border:none; color:#94a3b8; cursor:pointer;">✕</button>
+            </div>
+            <div id="modalList" style="max-height:400px; overflow-y:auto;"></div>
+        </div>
+    </div>
+
+    <!-- Compare Button -->
+    <div class="compare-action">
+        <button id="compareBtn" class="compare-btn" disabled>
+            <i class="fas fa-chart-simple"></i> Compare
+        </button>
+    </div>
+
+    <!-- Loading -->
+    <div id="loadingState" class="loading-state" style="display:none">
+        <div class="spinner"></div>
+        <p>Analyzing...</p>
+    </div>
+
+    <!-- Results -->
+    <div id="resultsContainer" style="display:none;"></div>
+</div>
+
+<script>
+const SCANS_DATA = {{ scans | tojson }};
+
+let selectedBefore = null;
+let selectedAfter = null;
+let currentSide = null;
+
+function showModal(side) {
+    currentSide = side;
+    const modal = document.getElementById('scanModal');
+    const list = document.getElementById('modalList');
+    
+    const filtered = SCANS_DATA.filter(s => 
+        s.id !== (side === 'before' ? selectedAfter?.id : selectedBefore?.id)
+    );
+    
+    if (filtered.length === 0) {
+        list.innerHTML = '<div style="padding:20px; text-align:center; color:#64748b;">No scans available</div>';
+    } else {
+        list.innerHTML = filtered.map(scan => `
+            <div onclick="selectScan('${side}', ${scan.id})" style="padding:12px 16px; border-bottom:1px solid #334155; cursor:pointer; color:#e2e8f0; transition:background 0.2s;" onmouseover="this.style.backgroundColor='#334155'" onmouseout="this.style.backgroundColor='transparent'">
+                <div style="font-weight:600;">${escapeHtml(scan.machine_name || scan.target)}</div>
+                <div style="font-size:12px; color:#64748b;">${scan.created_at?.slice(0, 16) || 'Unknown date'}</div>
+            </div>
+        `).join('');
+    }
+    
+    modal.style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('scanModal').style.display = 'none';
+}
+
+function selectScan(side, scanId) {
+    const scan = SCANS_DATA.find(s => s.id === scanId);
+    if (!scan) return;
+    
+    if (side === 'before') {
+        selectedBefore = scan;
+        document.getElementById('selectedBefore').innerHTML = `
+            <div style="padding:16px;">
+                <strong>${escapeHtml(scan.machine_name || scan.target)}</strong><br>
+                <small style="color:#64748b;">${scan.created_at?.slice(0, 16) || ''}</small>
+            </div>
+        `;
+        document.getElementById('clearBefore').style.display = 'flex';
+    } else {
+        selectedAfter = scan;
+        document.getElementById('selectedAfter').innerHTML = `
+            <div style="padding:16px;">
+                <strong>${escapeHtml(scan.machine_name || scan.target)}</strong><br>
+                <small style="color:#64748b;">${scan.created_at?.slice(0, 16) || ''}</small>
+            </div>
+        `;
+        document.getElementById('clearAfter').style.display = 'flex';
+    }
+    
+    closeModal();
+    document.getElementById('compareBtn').disabled = !(selectedBefore && selectedAfter);
+}
+
+// Clear selections
+document.getElementById('selectedBefore').onclick = () => showModal('before');
+document.getElementById('selectedAfter').onclick = () => showModal('after');
+
+document.getElementById('clearBefore').onclick = () => {
+    selectedBefore = null;
+    document.getElementById('selectedBefore').innerHTML = '<i class="fas fa-search"></i> Select a scan';
+    document.getElementById('clearBefore').style.display = 'none';
+    document.getElementById('compareBtn').disabled = true;
+};
+
+document.getElementById('clearAfter').onclick = () => {
+    selectedAfter = null;
+    document.getElementById('selectedAfter').innerHTML = '<i class="fas fa-search"></i> Select a scan';
+    document.getElementById('clearAfter').style.display = 'none';
+    document.getElementById('compareBtn').disabled = true;
+};
+
+// Compare
+document.getElementById('compareBtn').onclick = async () => {
+    if (!selectedBefore || !selectedAfter) return;
+    
+    document.getElementById('loadingState').style.display = 'flex';
+    document.getElementById('resultsContainer').style.display = 'none';
+    
+    try {
+        const res = await fetch(`/api/compare/${selectedBefore.id}/${selectedAfter.id}`);
+        const data = await res.json();
+        
+        if (data.error) throw new Error(data.error);
+        
+        renderResults(data);
+        document.getElementById('loadingState').style.display = 'none';
+        document.getElementById('resultsContainer').style.display = 'block';
+    } catch (err) {
+        document.getElementById('loadingState').style.display = 'none';
+        alert('Error: ' + err.message);
+    }
+};
+
+function renderResults(data) {
+    const s = data.summary;
+    
+    document.getElementById('resultsContainer').innerHTML = `
+        <div class="stats-grid">
+            <div class="stat-card fixed"><div class="stat-icon">✅</div><div class="stat-value">${s.fixed}</div><div class="stat-label">Fixed</div></div>
+            <div class="stat-card new"><div class="stat-icon">🆕</div><div class="stat-value">${s.new}</div><div class="stat-label">New</div></div>
+            <div class="stat-card persistent"><div class="stat-icon">🔄</div><div class="stat-value">${s.persistent}</div><div class="stat-label">Persistent</div></div>
+            <div class="stat-card score"><div class="stat-icon">📊</div><div class="stat-value ${s.score_change >= 0 ? 'positive' : 'negative'}">${s.score_change >= 0 ? '+' : ''}${s.score_change}</div><div class="stat-label">Score change</div><div class="stat-sub">${s.score_before} → ${s.score_after}</div></div>
+        </div>
+        
+        <div class="trend-alert" style="background:#1e293b; border-radius:16px; padding:20px; margin-bottom:24px;">
+            <div style="display:flex; align-items:center; gap:16px;">
+                <span style="font-size:32px;">${data.trend.icon || '📊'}</span>
+                <div>
+                    <strong>Trend: ${data.trend.trend || 'STABLE'}</strong>
+                    <p style="margin:4px 0 0 0; font-size:13px; color:#94a3b8;">${data.trend.message || ''}</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" style="background:#1e293b; border-radius:16px; padding:20px; margin-bottom:24px;">
+            <div style="font-weight:600; margin-bottom:12px;">💡 Recommendations</div>
+            <ul style="margin:0; padding-left:20px;">
+                ${data.recommendations.map(r => `<li style="margin:8px 0; color:#cbd5e1;">${escapeHtml(r)}</li>`).join('')}
+            </ul>
+        </div>
+    `;
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
+}
+</script>
+
+<style>
+.loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px; }
+.spinner { width: 48px; height: 48px; border: 3px solid #334155; border-top-color: #8b5cf6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stat-card { background: #1e293b; border-radius: 16px; padding: 20px; text-align: center; }
+.stat-value { font-size: 32px; font-weight: 700; margin: 8px 0; }
+.stat-value.positive { color: #22c55e; }
+.stat-value.negative { color: #ef4444; }
+.stat-label { color: #64748b; font-size: 13px; }
+.stat-sub { color: #475569; font-size: 11px; margin-top: 4px; }
+.selection-panel { display: flex; gap: 24px; justify-content: center; margin-bottom: 32px; flex-wrap: wrap; }
+.selection-card { flex: 1; min-width: 250px; background: #1e293b; border-radius: 16px; border: 1px solid #334155; overflow: hidden; }
+.selection-label { padding: 12px 16px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; }
+.badge { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
+.badge.before { background: #3b82f6; color: white; }
+.badge.after { background: #10b981; color: white; }
+.selected-scan-placeholder { text-align: center; padding: 20px; color: #64748b; }
+.vs-divider { width: 60px; text-align: center; font-weight: 700; color: #64748b; display: flex; align-items: center; justify-content: center; }
+.compare-action { text-align: center; margin-bottom: 40px; }
+.compare-btn { background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white; border: none; padding: 12px 32px; font-size: 16px; font-weight: 600; border-radius: 40px; cursor: pointer; }
+.compare-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.clear-selection { cursor: pointer; color: #ef4444; padding: 0 8px; }
+</style>
+
+{% endblock %}
