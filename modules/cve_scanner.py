@@ -124,3 +124,20 @@ def search_cves(product, version=""):
 
     except (requests.RequestException, ValueError):
         return []
+
+# Ajoute à la fin du fichier
+
+if __name__ == "__main__":
+    print("Testing CVE search for nginx...")
+    cves = search_cves("nginx", "1.18.0")
+    
+    if cves:
+        print(f"\n✅ Found {len(cves)} CVEs:")
+        for cve in cves:
+            print(f"  - {cve['cve']}: {cve['severity']} (CVSS: {cve.get('score', 'N/A')})")
+            print(f"    {cve['description']}...")
+    else:
+        print("\n⚠️ No CVEs found. Check:")
+        print("   1. Internet connection")
+        print("   2. NVD API is accessible")
+        print("   3. Product name is correct")

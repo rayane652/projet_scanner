@@ -867,7 +867,7 @@ def debug_scan_result(user_email):
             print(f"Error parsing: {e}")
 
 def get_last_comparison(user_email):
-    """Compare the last two scans for the SAME asset"""
+    """Compare the last two scans for the SAME asset (by machine_name)"""
     conn = get_db_connection()
     
     rows = conn.execute("""
@@ -884,26 +884,30 @@ def get_last_comparison(user_email):
     if len(rows) < 2:
         return None
     
-    # Group by target (IP address) - most reliable
+    # Group by machine_name (or target if no machine_name)
     assets = {}
     for row in rows:
-        target = row["target"]
-        if target not in assets:
-            assets[target] = []
-        assets[target].append({
-            "target": target,
+        key = row["machine_name"] if row["machine_name"] else row["target"]
+        if key not in assets:
+            assets[key] = []
+        assets[key].append({
+            "target": row["target"],
             "machine_name": row["machine_name"],
             "result_json": row["result_json"],
             "created_at": row["created_at"]
         })
     
+    print(f"DEBUG: Assets found: {list(assets.keys())}")
+    
     # Find asset with at least 2 scans
-    for target, scans in assets.items():
+    for asset_name, scans in assets.items():
         if len(scans) >= 2:
-            # Sort by date
+            # Sort by date (most recent first)
             scans.sort(key=lambda x: x["created_at"], reverse=True)
             scan_new = scans[0]
             scan_old = scans[1]
+            
+            print(f"DEBUG: Comparing {asset_name}: {scan_old['created_at'][:16]} vs {scan_new['created_at'][:16]}")
             
             try:
                 data_new = json.loads(scan_new["result_json"])
@@ -917,22 +921,20 @@ def get_last_comparison(user_email):
                 
                 fixed = max(0, vulns_old - vulns_new)
                 new_vulns = max(0, vulns_new - vulns_old)
-                persistent = min(vulns_old, vulns_new)
+                persistent = vulns_new - new_vulns
                 
                 if score_old > 0:
                     improvement = round((score_new - score_old) / score_old * 100, 1)
                 else:
                     improvement = 0
                 
-                # Message
-                if fixed > 0 and new_vulns == 0:
-                    msg = f"✅ Great progress! {fixed} vulnerabilities fixed. Score +{improvement}%."
-                elif fixed > 0 and new_vulns > 0:
-                    msg = f"📊 {fixed} fixed, {new_vulns} new. Score {improvement:+}%."
-                elif new_vulns > 0:
-                    msg = f"⚠️ {new_vulns} new vulnerability detected."
-                elif persistent > 0:
-                    msg = f"➡️ {persistent} persistent vulnerabilities need attention."
+                print(f"DEBUG: score_old={score_old}, score_new={score_new}, improvement={improvement}%")
+                
+                # Simple English message
+                if new_vulns > 0:
+                    msg = f"⚠️ {new_vulns} new vulnerability detected." if new_vulns == 1 else f"⚠️ {new_vulns} new vulnerabilities detected."
+                elif fixed > 0:
+                    msg = f"✅ {fixed} vulnerabilities fixed. Score +{improvement}%."
                 else:
                     msg = f"📊 Security score: {score_old} → {score_new} ({improvement:+}%)"
                 
@@ -942,12 +944,13 @@ def get_last_comparison(user_email):
                     "new": new_vulns,
                     "persistent": persistent,
                     "ai_message": msg,
-                    "scan_name": scan_new.get("machine_name") or target,
+                    "scan_name": asset_name,
                     "score_before": score_old,
                     "score_after": score_new,
                     "has_data": True
                 }
-            except:
+            except Exception as e:
+                print(f"Error parsing {asset_name}: {e}")
                 continue
     
     return None
