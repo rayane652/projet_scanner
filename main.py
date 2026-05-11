@@ -1426,30 +1426,35 @@ def api_active_scans():
 def generate_fix():
 
     if "user" not in session:
-        return jsonify({
-            "error": "Unauthorized"
-        }), 401
+        return jsonify({"error": "Unauthorized"}), 401
 
     try:
-
         from modules.ai_remediation import generate_single_remediation
 
-        data = request.get_json()
+        body = request.get_json(silent=True) or {}
 
-        result = generate_single_remediation(data)
+        data = {
+            "title":          str(body.get("title",          "") or "")[:300],
+            "description":    str(body.get("description",    "") or "")[:1000],
+            "severity":       str(body.get("severity",       "INFO") or "INFO")[:20],
+            "evidence":       str(body.get("evidence",       "") or "")[:500],
+            "recommendation": str(body.get("recommendation", "") or "")[:500],
+        }
 
-        return jsonify(result)
+        if not data["title"]:
+            return jsonify({"error": "title is required"}), 400
+
+        return jsonify(generate_single_remediation(data))
 
     except Exception as e:
-
         print("AI FIX ERROR:", repr(e))
-
         return jsonify({
-            "title": "AI Error",
+            "title":       "Error",
             "explanation": str(e),
-            "impact": "",
-            "commands": [],
-            "config": ""
+            "impact":      "",
+            "commands":    [],
+            "config":      "",
+            "source":      "fallback",
         }), 500
 
 
