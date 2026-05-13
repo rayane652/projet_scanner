@@ -64,12 +64,36 @@
     <div class="result-dashboard">
 
         {% if not selected_scan %}
-            <section class="result-empty">
-                <i class="fas fa-file-alt"></i>
-                <h2>No results found</h2>
-                <p>Run a scan and the result report will appear here.</p>
-                <a href="{{ url_for('scan_page') }}">Start Scan</a>
+            {% if not scans %}
+            <section class="welcome-empty-state">
+                <div class="welcome-empty-icon">
+                    <i class="fas fa-shield-halved"></i>
+                </div>
+                <h2>No scans yet</h2>
+                <p>Run your first scan to start discovering vulnerabilities, open ports, and security risks across your assets.</p>
+                <a href="{{ url_for('scan_page') }}" class="welcome-scan-btn">
+                    <i class="fas fa-play"></i> Start Your First Scan
+                </a>
+                <div class="welcome-features">
+                    <span><i class="fas fa-check-circle"></i> Port Discovery</span>
+                    <span><i class="fas fa-check-circle"></i> CVE Detection</span>
+                    <span><i class="fas fa-check-circle"></i> AI Analysis</span>
+                    <span><i class="fas fa-check-circle"></i> Risk Scoring</span>
+                </div>
             </section>
+            {% else %}
+            <section class="welcome-select-state">
+                <div class="welcome-select-icon">
+                    <i class="fas fa-arrow-left"></i>
+                </div>
+                <h2>Select a scan</h2>
+                <p>Choose a scan from the list on the left to view its full security report, AI analysis, and findings.</p>
+                <div class="welcome-scan-hint">
+                    <i class="fas fa-list-check"></i>
+                    <span>{{ scans|length }} scan{{ 's' if scans|length != 1 }} available</span>
+                </div>
+            </section>
+            {% endif %}
 
        {% elif selected_scan.status == "scanning" %}
 <section class="scan-state-modern scanning-state">
@@ -292,14 +316,12 @@
     <!-- RIGHT -->
     <div class="hero-score-block">
 
-        <div class="score-gauge risk-{{ risk_class }}"
-             style="--score: {{ results.risk_score }}%;">
-
-            <div>
+        <div class="sev-donut-wrap">
+            <canvas id="sevDonutChart" width="140" height="140"></canvas>
+            <div class="sev-donut-center">
                 <strong>{{ results.risk_score }}</strong>
                 <span>/100</span>
             </div>
-
         </div>
 
         <p>Security Score</p>
@@ -312,121 +334,123 @@
 
 </section>
 
-                {# ── VERTICAL METRICS ── #}
-               <section class="result-metrics-vertical">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+(function() {
+    const breakdown = {{ results.severity_breakdown | tojson }};
+    const colorMap = {
+        critical: "#7f1d1d",
+        high:     "#ef4444",
+        medium:   "#f97316",
+        low:      "#22c55e",
+        info:     "#64748b"
+    };
+    const labels = breakdown.map(i => i.label);
+    const data   = breakdown.map(i => i.count);
+    const colors = breakdown.map(i => colorMap[i.key] || "#94a3b8");
+    const total  = data.reduce((a,b) => a+b, 0);
+    const ctx = document.getElementById("sevDonutChart");
+    if (!ctx) return;
+    new Chart(ctx, {
+        type: "doughnut",
+        data: {
+            labels: labels,
+            datasets: [{
+                data: total > 0 ? data : [1],
+                backgroundColor: total > 0 ? colors : ["#e2e8f0"],
+                borderWidth: 3,
+                borderColor: "#ffffff",
+                hoverOffset: 6
+            }]
+        },
+        options: {
+            cutout: "72%",
+            responsive: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => total > 0
+                            ? ` ${ctx.label}: ${ctx.raw} (${Math.round(ctx.raw/total*100)}%)`
+                            : " No findings"
+                    },
+                    backgroundColor: "#0f172a",
+                    titleColor: "#f1f5f9",
+                    bodyColor: "#94a3b8",
+                    padding: 10,
+                    cornerRadius: 8
+                }
+            }
+        }
+    });
+})();
+</script>
 
-    <!-- OPEN PORTS -->
-    <article class="metric-tile-v">
+                {# ── HORIZONTAL METRICS ── #}
+               <section id="ports" class="result-metrics-horizontal">
 
-        <div class="metric-top">
+                    <article class="metric-h-tile">
+                        <div class="metric-h-icon" style="color:#4f46e5;background:#eef2ff;">
+                            <i class="fas fa-globe"></i>
+                        </div>
+                        <div class="metric-h-body">
+                            <strong>{{ results.summary.open_ports }}</strong>
+                            <span>Open Ports</span>
+                            <small>{{ "Active ports found" if results.summary.open_ports else "No active ports" }}</small>
+                        </div>
+                    </article>
 
-            <div class="metric-icon-v"
-                 style="color:#4f46e5;background:#eef2ff;">
-                <i class="fas fa-globe"></i>
-            </div>
+                    <article class="metric-h-tile">
+                        <div class="metric-h-icon" style="color:#7c3aed;background:#f3e8ff;">
+                            <i class="fas fa-shield-halved"></i>
+                        </div>
+                        <div class="metric-h-body">
+                            <strong>{{ results.summary.vulnerabilities }}</strong>
+                            <span>Vulnerabilities</span>
+                            <small>{{ "CVE matches found" if results.summary.vulnerabilities else "No CVEs found" }}</small>
+                        </div>
+                    </article>
 
-            <div class="metric-info-v">
-                <span>Open Ports</span>
+                    <article class="metric-h-tile">
+                        <div class="metric-h-icon" style="color:#2563eb;background:#dbeafe;">
+                            <i class="fas fa-link"></i>
+                        </div>
+                        <div class="metric-h-body">
+                            <strong>{{ results.summary.web_paths }}</strong>
+                            <span>Web Paths</span>
+                            <small>{{ "Interesting paths found" if results.summary.web_paths else "No interesting paths" }}</small>
+                        </div>
+                    </article>
 
-                <strong>
-                    {{ results.summary.open_ports }}
-                </strong>
-            </div>
+                    <article class="metric-h-tile">
+                        <div class="metric-h-icon" style="color:#635bff;background:#ede9fe;">
+                            <i class="fas fa-arrows-rotate"></i>
+                        </div>
+                        <div class="metric-h-body">
+                            <strong>{{ results.summary.missing_updates }}</strong>
+                            <span>Missing Updates</span>
+                            <small>{{ "Updates need review" if results.summary.missing_updates else "All up to date" }}</small>
+                        </div>
+                    </article>
 
-        </div>
+                    <article class="metric-h-tile">
+                        <div class="metric-h-icon" style="color:#16a34a;background:#dcfce7;">
+                            <i class="fas fa-clipboard-list"></i>
+                        </div>
+                        <div class="metric-h-body">
+                            <strong>{{ results.summary.scanned_items|default(results.summary.findings) }}</strong>
+                            <span>Scanned Items</span>
+                            <small>Total items scanned</small>
+                        </div>
+                    </article>
 
-        <small>
-            {{ "Active ports found" if results.summary.open_ports else "No active ports" }}
-        </small>
-
-    </article>
-
-    <!-- VULNERABILITIES -->
-    <article class="metric-tile-v">
-
-        <div class="metric-top">
-
-            <div class="metric-icon-v"
-                 style="color:#7c3aed;background:#f3e8ff;">
-                <i class="fas fa-shield-halved"></i>
-            </div>
-
-            <div class="metric-info-v">
-                <span>Vulnerabilities</span>
-
-                <strong>
-                    {{ results.summary.vulnerabilities }}
-                </strong>
-            </div>
-
-        </div>
-
-        <small>
-            {{ "CVE matches found" if results.summary.vulnerabilities else "No CVEs found" }}
-        </small>
-
-    </article>
-
-    <!-- WEB PATHS -->
-    <article class="metric-tile-v">
-
-        <div class="metric-top">
-
-            <div class="metric-icon-v"
-                 style="color:#2563eb;background:#dbeafe;">
-                <i class="fas fa-link"></i>
-            </div>
-
-            <div class="metric-info-v">
-                <span>Web Paths</span>
-
-                <strong>
-                    {{ results.summary.web_paths }}
-                </strong>
-            </div>
-
-        </div>
-
-        <small>
-            {{ "Interesting paths found" if results.summary.web_paths else "No interesting paths" }}
-        </small>
-
-    </article>
-
-    <!-- MISSING UPDATES -->
-    <article class="metric-tile-v">
-
-        <div class="metric-top">
-
-            <div class="metric-icon-v"
-                 style="color:#635bff;background:#ede9fe;">
-                <i class="fas fa-arrows-rotate"></i>
-            </div>
-
-            <div class="metric-info-v">
-                <span>Missing Updates</span>
-
-                <strong>
-                    {{ results.summary.missing_updates }}
-                </strong>
-            </div>
-
-        </div>
-
-        <small>
-            {{ "Updates need review" if results.summary.missing_updates else "All up to date" }}
-        </small>
-
-    </article>
-
-
-</section>
+                </section>
                
 
 
                 {# ── AI ANALYSIS ── #}
                 {% if results.ai %}
-                    <section class="panel-card ai-panel">
+                    <section id="ai" class="panel-card ai-panel">
                         <div class="ai-panel-head">
                             <div>
                                 <span>AI Analyst</span>
@@ -443,7 +467,7 @@
                             </div>
                         {% endif %}
 
-                        <div class="ai-bottom-grid">
+                        <div class="ai-chat-fullwidth">
 
                             <div class="ai-chat" data-scan-id="{{ selected_scan.id }}">
                                 <div class="ai-chat-header">
@@ -520,7 +544,7 @@
                     </article>
                 </section> 
                 {# ── SCANNED ITEMS ── #}
-                <section class="panel-card details-panel">
+                <section id="findings" class="panel-card details-panel">
                     <div class="panel-title">
                         <i class="fas fa-list"></i>
                         <h3>Scanned Items Details</h3>
@@ -720,7 +744,7 @@
     </div>
 </div>
 
-<!-- Delete Modal -->
+
 <!-- ══════════════ AUTO-FIX DRAWER ══════════════ -->
 <div id="afOverlay" onclick="closeFixDrawer()"></div>
 <aside id="afDrawer">
@@ -767,47 +791,7 @@
     </div>
 </aside>
 
-<style>
-#afOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1100;backdrop-filter:blur(2px)}
-#afDrawer{position:fixed;top:0;right:0;width:min(460px,100vw);height:100dvh;background:var(--color-background-primary,#fff);border-left:1px solid var(--color-border-tertiary,#e5e7eb);box-shadow:-6px 0 28px rgba(0,0,0,.14);z-index:1101;display:flex;flex-direction:column;transform:translateX(110%);transition:transform .28s cubic-bezier(.4,0,.2,1)}
-#afDrawer.af-open{transform:translateX(0)}
-.af-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:15px 18px;border-bottom:1px solid var(--color-border-tertiary,#e5e7eb);flex-shrink:0}
-.af-header-left{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
-.af-htitle{font-size:13px;font-weight:600;line-height:1.4}
-.af-close{background:none;border:none;cursor:pointer;font-size:14px;opacity:.5;padding:3px 7px;border-radius:4px;color:inherit}
-.af-close:hover{opacity:1;background:var(--color-background-secondary,#f3f4f6)}
-.af-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;flex:1;padding:24px;text-align:center;color:var(--color-text-secondary,#6b7280);font-size:14px}
-@keyframes afpulse{0%,100%{opacity:1}50%{opacity:.2}}
-.af-pulse{font-size:28px;color:#7c3aed;animation:afpulse 1.4s ease-in-out infinite}
-.af-dots::after{content:'';animation:afdot 1.2s steps(4,end) infinite}
-@keyframes afdot{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
-.af-retry{margin-top:4px;padding:7px 18px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px}
-.af-body{flex:1;overflow-y:auto;padding:18px 20px}
-.af-sec{margin-bottom:18px}
-.af-lbl{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-secondary,#6b7280);margin-bottom:7px;display:flex;align-items:center;gap:6px}
-.af-p{font-size:13px;line-height:1.65;margin:0}
-.af-warn{color:#b45309}
-.af-cmd{display:flex;align-items:center;gap:8px;background:#0f172a;border-radius:8px;padding:9px 12px;margin-bottom:5px}
-.af-cmd.cmt{background:transparent;padding:2px 0}
-.af-cmd code{flex:1;font-family:'SF Mono','Fira Code',monospace;font-size:12px;color:#e2e8f0;white-space:pre-wrap;word-break:break-all}
-.af-cmd.cmt code{color:var(--color-text-secondary,#9ca3af);font-family:inherit}
-.af-cpbtn{background:none;border:none;cursor:pointer;color:#64748b;font-size:11px;flex-shrink:0;padding:2px 5px;border-radius:4px;transition:color .15s}
-.af-cpbtn:hover{color:#e2e8f0;background:rgba(255,255,255,.1)}
-.af-cpbtn.ok{color:#4ade80}
-.af-code{position:relative;background:#0f172a;border-radius:10px;overflow:hidden}
-.af-code pre{margin:0;padding:12px 48px 12px 14px;overflow-x:auto}
-.af-code code{font-family:'SF Mono','Fira Code',monospace;font-size:12px;color:#e2e8f0;line-height:1.6;white-space:pre}
-.af-copyall{position:absolute;top:8px;right:8px;background:rgba(255,255,255,.1);border:none;color:#94a3b8;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:11px;transition:background .15s}
-.af-copyall:hover{background:rgba(255,255,255,.2);color:#e2e8f0}
-.af-src{margin-left:auto;font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;text-transform:none;letter-spacing:0}
-.src-ai{background:#ede9fe;color:#5b21b6}
-.src-static{background:#d1fae5;color:#065f46}
-.src-fallback{background:#f3f4f6;color:#6b7280}
-.af-note{font-size:11px;color:var(--color-text-secondary,#9ca3af);display:flex;align-items:center;gap:6px;border-top:1px solid var(--color-border-tertiary,#e5e7eb);padding-top:14px;margin-top:4px}
-.ai-fix-btn{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:7px 14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;transition:opacity .15s,transform .1s}
-.ai-fix-btn:hover{opacity:.88;transform:translateY(-1px)}
-</style>
-
+<!-- Delete Modal -->
 <div id="deleteModal"
      style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;align-items:center;justify-content:center;">
     <div style="background:white;padding:24px;border-radius:20px;width:320px;text-align:center;">
@@ -824,116 +808,229 @@
 <script>
 // ── AI Chat ──────────────────────────────────────────────────────────────────
 const aiChat = document.querySelector(".ai-chat");
+
 if (aiChat) {
+
     const scanId   = aiChat.dataset.scanId;
     const log      = document.getElementById("aiChatLog");
     const input    = document.getElementById("aiQuestion");
     const button   = document.getElementById("aiAskButton");
     const clearBtn = document.getElementById("aiClearBtn");
 
-    let conversationHistory = [];
+    let conversationHistory = {{ ai_messages | tojson | safe }};
     let isThinking = false;
 
     if (typeof marked !== "undefined") {
-        marked.setOptions({ breaks: true, gfm: true });
+        marked.setOptions({
+            breaks: true,
+            gfm: true
+        });
     }
 
     function renderMarkdown(text) {
-        if (typeof marked !== "undefined") return marked.parse(text);
-        return text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
+
+        if (typeof marked !== "undefined") {
+            return marked.parse(text);
+        }
+
+        return text
+            .replace(/&/g,"&amp;")
+            .replace(/</g,"&lt;")
+            .replace(/>/g,"&gt;")
+            .replace(/\n/g,"<br>");
     }
 
     function appendMessage(text, type) {
+
         const item = document.createElement("div");
+
         item.className = "ai-message " + (type || "");
+
         if (type === "bot") {
+
             item.innerHTML = renderMarkdown(text);
+
             item.querySelectorAll("pre code, pre").forEach(el => {
-                el.style.cssText = "display:block;background:#0f172a;color:#e2e8f0;padding:10px 12px;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.5;";
+
+                el.style.cssText =
+                "display:block;background:#0f172a;color:#e2e8f0;padding:10px 12px;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.5;";
             });
+
         } else {
+
             item.textContent = text;
         }
+
         log.appendChild(item);
+
         log.scrollTop = log.scrollHeight;
+
         return item;
     }
 
+    // 🔥 LOAD OLD CHAT
+    if (conversationHistory.length > 0) {
+
+        log.innerHTML = "";
+
+        conversationHistory.forEach(msg => {
+
+            appendMessage(
+                msg.content,
+                msg.role === "assistant"
+                    ? "bot"
+                    : "user"
+            );
+
+        });
+
+    }
+
     function showTyping() {
+
         const el = document.createElement("div");
+
         el.className = "ai-message bot ai-typing";
+
         el.id = "aiTypingIndicator";
+
         el.innerHTML = "<span></span><span></span><span></span>";
+
         log.appendChild(el);
+
         log.scrollTop = log.scrollHeight;
     }
 
     function hideTyping() {
+
         const el = document.getElementById("aiTypingIndicator");
+
         if (el) el.remove();
     }
 
     function setLoading(on) {
+
         isThinking = on;
+
         button.disabled = on;
-        input.disabled  = on;
-        button.textContent = on ? "…" : "Send";
+
+        input.disabled = on;
+
+        button.textContent = on
+            ? "…"
+            : "Send";
     }
 
     function askAi(question) {
+
         const value = (question || input.value || "").trim();
+
         if (!value || isThinking) return;
+
         appendMessage(value, "user");
+
         input.value = "";
+
         setLoading(true);
+
         showTyping();
+
         fetch(`/scan/${scanId}/ai-chat`, {
-            method:  "POST",
-            headers: {"Content-Type": "application/json"},
-            body:    JSON.stringify({ question: value, history: conversationHistory })
+
+            method: "POST",
+
+            headers: {
+                "Content-Type": "application/json"
+            },
+
+            body: JSON.stringify({
+                question: value,
+                history: conversationHistory
+            })
+
         })
+
         .then(r => r.json())
+
         .then(d => {
+
             hideTyping();
-            const answer = d.answer || d.error || "No answer returned.";
+
+            const answer =
+                d.answer
+                || d.error
+                || "No answer returned.";
+
             appendMessage(answer, "bot");
-            conversationHistory.push({ role: "user",      content: value  });
-            conversationHistory.push({ role: "assistant", content: answer });
-            if (conversationHistory.length > 20) {
-                conversationHistory = conversationHistory.slice(-20);
+
+            conversationHistory.push({
+                role: "user",
+                content: value
+            });
+
+            conversationHistory.push({
+                role: "assistant",
+                content: answer
+            });
+
+            if (conversationHistory.length > 50) {
+
+                conversationHistory =
+                    conversationHistory.slice(-50);
             }
+
         })
+
         .catch(() => {
+
             hideTyping();
-            appendMessage("Network error — could not reach the AI analyst.", "bot");
+
+            appendMessage(
+                "Network error — could not reach the AI analyst.",
+                "bot"
+            );
+
         })
-        .finally(() => setLoading(false));
+
+        .finally(() => {
+
+            setLoading(false);
+
+        });
     }
 
     button?.addEventListener("click", () => askAi());
-    input?.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) askAi(); });
-    aiChat.querySelectorAll("[data-question]").forEach(el => {
-        el.addEventListener("click", () => askAi(el.dataset.question));
-    });
-    clearBtn?.addEventListener("click", () => {
-        conversationHistory = [];
-        log.innerHTML = '<div class="ai-message bot">Chat cleared. Ask a new question.</div>';
-    });
-}
 
-let deleteForm = null;
-function showDeleteModal(event, form) {
-    event.preventDefault();
-    deleteForm = form;
-    document.getElementById("deleteModal").style.display = "flex";
-    return false;
+    input?.addEventListener("keydown", e => {
+
+        if (e.key === "Enter" && !e.shiftKey) {
+
+            askAi();
+        }
+
+    });
+
+    aiChat.querySelectorAll("[data-question]").forEach(el => {
+
+        el.addEventListener("click", () => {
+
+            askAi(el.dataset.question);
+
+        });
+
+    });
+
+    clearBtn?.addEventListener("click", () => {
+
+        conversationHistory = [];
+
+        log.innerHTML = `
+            <div class="ai-message bot">
+                Chat cleared. Ask a new question.
+            </div>
+        `;
+    });
 }
-function closeDeleteModal() {
-    document.getElementById("deleteModal").style.display = "none";
-}
-document.getElementById("confirmDeleteBtn").onclick = function () {
-    if (deleteForm) deleteForm.submit();
-};
 
 // ── AUTO-FIX DRAWER ─────────────────────────────────────
 let _afFinding = null;

@@ -5,165 +5,167 @@
 {% endblock %}
 
 {% block content %}
+<div class="compare-page">
 
-<div class="compare-container">
-    
-    <!-- Header -->
-    <div class="compare-header">
-        <h1><i class="fas fa-chart-line"></i> Security Drift Detection</h1>
-        <p>Compare two scans to visualize your security evolution</p>
+    <div class="compare-hero">
+        <div class="compare-hero-text">
+            <h1><i class="fas fa-chart-line"></i> Security Drift Detection</h1>
+            <p>Compare two scans side by side to visualize how your security posture has evolved over time.</p>
+        </div>
+        <div class="compare-hero-badges">
+            <span><i class="fas fa-check-circle"></i> Risk Delta</span>
+            <span><i class="fas fa-check-circle"></i> CVE Tracking</span>
+            <span><i class="fas fa-check-circle"></i> AI Insights</span>
+        </div>
     </div>
 
-    <!-- Selection Panel -->
-    <div class="selection-panel">
-        <div class="selection-card">
-            <div class="selection-label">
-                <span class="badge before">📅 Before Scan</span>
-                <span id="clearBefore" class="clear-selection" style="display:none">✕</span>
-            </div>
-            <div id="selectedBefore" class="selected-scan-placeholder" style="cursor:pointer;">
-                <i class="fas fa-search"></i> Select a scan
+    <div class="compare-selection">
+        <div class="compare-slot" id="slotBefore" onclick="showModal('before')">
+            <div class="slot-label before-label"><i class="fas fa-calendar-minus"></i> Before</div>
+            <div class="slot-body" id="slotBeforeBody">
+                <div class="slot-placeholder"><i class="fas fa-search"></i><span>Select a scan</span></div>
             </div>
         </div>
-
-        <div class="vs-divider"><span>VS</span></div>
-
-        <div class="selection-card">
-            <div class="selection-label">
-                <span class="badge after">📅 After Scan</span>
-                <span id="clearAfter" class="clear-selection" style="display:none">✕</span>
-            </div>
-            <div id="selectedAfter" class="selected-scan-placeholder" style="cursor:pointer;">
-                <i class="fas fa-search"></i> Select a scan
+        <div class="compare-vs">
+            <div class="vs-ring">VS</div>
+        </div>
+        <div class="compare-slot" id="slotAfter" onclick="showModal('after')">
+            <div class="slot-label after-label"><i class="fas fa-calendar-plus"></i> After</div>
+            <div class="slot-body" id="slotAfterBody">
+                <div class="slot-placeholder"><i class="fas fa-search"></i><span>Select a scan</span></div>
             </div>
         </div>
     </div>
 
-    <!-- Scan Selection Modal (simple) -->
-    <div id="scanModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
-        <div style="background:#1e293b; border-radius:16px; width:400px; max-width:90%; max-height:80%; overflow:hidden;">
-            <div style="padding:16px; border-bottom:1px solid #334155; display:flex; justify-content:space-between;">
-                <span style="color:white; font-weight:600;">Select a scan</span>
-                <button onclick="closeModal()" style="background:none; border:none; color:#94a3b8; cursor:pointer;">✕</button>
-            </div>
-            <div id="modalList" style="max-height:400px; overflow-y:auto;"></div>
-        </div>
-    </div>
-
-    <!-- Compare Button -->
     <div class="compare-action">
         <button id="compareBtn" class="compare-btn" disabled>
-            <i class="fas fa-chart-simple"></i> Compare
+            <i class="fas fa-bolt"></i> Run Comparison
         </button>
+        <p class="compare-hint" id="compareHint">Select both scans to compare</p>
     </div>
 
-    <!-- Loading -->
-    <div id="loadingState" class="loading-state" style="display:none">
-        <div class="spinner"></div>
-        <p>Analyzing...</p>
+    <div id="loadingState" class="compare-loading" style="display:none">
+        <div class="compare-spinner"></div>
+        <p>Analyzing security drift<span class="loading-dots"></span></p>
     </div>
 
-    <!-- Results -->
-    <div id="resultsContainer" style="display:none;"></div>
+    <div id="resultsContainer" style="display:none">
+        <div class="drift-cards" id="driftCards"></div>
+        <div class="trend-banner" id="trendBanner"></div>
+        <div class="compare-two-col">
+            <div class="compare-panel">
+                <div class="cp-head"><i class="fas fa-chart-bar"></i><h3>Severity Breakdown</h3></div>
+                <div id="severityContent"></div>
+            </div>
+            <div class="compare-panel">
+                <div class="cp-head"><i class="fas fa-lightbulb"></i><h3>Recommendations</h3></div>
+                <ul class="reco-list" id="recoContent"></ul>
+            </div>
+        </div>
+        <div class="compare-two-col">
+            <div class="compare-panel">
+                <div class="cp-head fixed-head"><i class="fas fa-check-circle"></i><h3>Fixed Vulnerabilities</h3><span class="cp-count" id="fixedCount">0</span></div>
+                <div class="vuln-scroll" id="fixedList"></div>
+            </div>
+            <div class="compare-panel">
+                <div class="cp-head new-head"><i class="fas fa-circle-exclamation"></i><h3>New Vulnerabilities</h3><span class="cp-count danger" id="newCount">0</span></div>
+                <div class="vuln-scroll" id="newList"></div>
+            </div>
+        </div>
+    </div>
 </div>
 
+<div id="scanModal" class="modal-overlay" onclick="closeModal(event)">
+    <div class="modal-box">
+        <div class="modal-head">
+            <span id="modalTitle">Select a scan</span>
+            <button onclick="closeModalBtn()" class="modal-close"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-search">
+            <i class="fas fa-search"></i>
+            <input type="text" id="modalSearch" placeholder="Search scans..." oninput="filterModal()">
+        </div>
+        <div class="modal-list" id="modalList"></div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 const SCANS_DATA = {{ scans | tojson }};
+let selectedBefore = null, selectedAfter = null, currentSide = null, sevChart = null;
 
-let selectedBefore = null;
-let selectedAfter = null;
-let currentSide = null;
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function showModal(side) {
     currentSide = side;
-    const modal = document.getElementById('scanModal');
-    const list = document.getElementById('modalList');
-    
-    const filtered = SCANS_DATA.filter(s => 
-        s.id !== (side === 'before' ? selectedAfter?.id : selectedBefore?.id)
-    );
-    
-    if (filtered.length === 0) {
-        list.innerHTML = '<div style="padding:20px; text-align:center; color:#64748b;">No scans available</div>';
-    } else {
-        list.innerHTML = filtered.map(scan => `
-            <div onclick="selectScan('${side}', ${scan.id})" style="padding:12px 16px; border-bottom:1px solid #334155; cursor:pointer; color:#e2e8f0; transition:background 0.2s;" onmouseover="this.style.backgroundColor='#334155'" onmouseout="this.style.backgroundColor='transparent'">
-                <div style="font-weight:600;">${escapeHtml(scan.machine_name || scan.target)}</div>
-                <div style="font-size:12px; color:#64748b;">${scan.created_at?.slice(0, 16) || 'Unknown date'}</div>
+    document.getElementById('modalTitle').textContent = side === 'before' ? 'Select — Before Scan' : 'Select — After Scan';
+    document.getElementById('modalSearch').value = '';
+    renderModalList(SCANS_DATA);
+    document.getElementById('scanModal').classList.add('modal-open');
+}
+function filterModal() {
+    const q = document.getElementById('modalSearch').value.toLowerCase();
+    renderModalList(SCANS_DATA.filter(s => (s.machine_name||s.target||'').toLowerCase().includes(q)));
+}
+function renderModalList(list) {
+    const other = currentSide === 'before' ? selectedAfter : selectedBefore;
+    const filtered = list.filter(s => !other || s.id !== other.id);
+    const el = document.getElementById('modalList');
+    if (!filtered.length) { el.innerHTML = '<div class="modal-empty"><i class="fas fa-inbox"></i><p>No scans found</p></div>'; return; }
+    el.innerHTML = filtered.map(s => `
+        <div class="modal-item" onclick="selectScan('${currentSide}',${s.id})">
+            <div class="modal-item-icon"><i class="fas fa-shield-halved"></i></div>
+            <div class="modal-item-body">
+                <strong>${esc(s.machine_name||s.target)}</strong>
+                <span>${s.created_at?s.created_at.slice(0,16):'Unknown'} · ${esc(s.scan_type||'scan')}</span>
             </div>
-        `).join('');
-    }
-    
-    modal.style.display = 'flex';
+            <i class="fas fa-arrow-right modal-item-arrow"></i>
+        </div>`).join('');
 }
-
-function closeModal() {
-    document.getElementById('scanModal').style.display = 'none';
-}
+function closeModal(e) { if (e && e.target !== document.getElementById('scanModal')) return; closeModalBtn(); }
+function closeModalBtn() { document.getElementById('scanModal').classList.remove('modal-open'); }
 
 function selectScan(side, scanId) {
     const scan = SCANS_DATA.find(s => s.id === scanId);
     if (!scan) return;
-    
-    if (side === 'before') {
-        selectedBefore = scan;
-        document.getElementById('selectedBefore').innerHTML = `
-            <div style="padding:16px;">
-                <strong>${escapeHtml(scan.machine_name || scan.target)}</strong><br>
-                <small style="color:#64748b;">${scan.created_at?.slice(0, 16) || ''}</small>
+    if (side === 'before') { selectedBefore = scan; renderSlot('slotBeforeBody', scan); }
+    else { selectedAfter = scan; renderSlot('slotAfterBody', scan); }
+    closeModalBtn();
+    updateBtn();
+}
+function renderSlot(elId, scan) {
+    document.getElementById(elId).innerHTML = `
+        <div class="slot-selected">
+            <div class="slot-selected-icon"><i class="fas fa-server"></i></div>
+            <div class="slot-selected-info">
+                <strong>${esc(scan.machine_name||scan.target)}</strong>
+                <span>${scan.created_at?scan.created_at.slice(0,16):''}</span>
+                <em>${esc(scan.scan_type||'scan')}</em>
             </div>
-        `;
-        document.getElementById('clearBefore').style.display = 'flex';
-    } else {
-        selectedAfter = scan;
-        document.getElementById('selectedAfter').innerHTML = `
-            <div style="padding:16px;">
-                <strong>${escapeHtml(scan.machine_name || scan.target)}</strong><br>
-                <small style="color:#64748b;">${scan.created_at?.slice(0, 16) || ''}</small>
-            </div>
-        `;
-        document.getElementById('clearAfter').style.display = 'flex';
-    }
-    
-    closeModal();
-    document.getElementById('compareBtn').disabled = !(selectedBefore && selectedAfter);
+            <i class="fas fa-check-circle slot-check"></i>
+        </div>`;
+}
+function updateBtn() {
+    const ready = !!(selectedBefore && selectedAfter);
+    document.getElementById('compareBtn').disabled = !ready;
+    const h = document.getElementById('compareHint');
+    h.textContent = ready ? 'Ready — click to compare!' : 'Select both scans to compare';
+    h.style.color = ready ? '#01dcba' : '';
 }
 
-// Clear selections
-document.getElementById('selectedBefore').onclick = () => showModal('before');
-document.getElementById('selectedAfter').onclick = () => showModal('after');
-
-document.getElementById('clearBefore').onclick = () => {
-    selectedBefore = null;
-    document.getElementById('selectedBefore').innerHTML = '<i class="fas fa-search"></i> Select a scan';
-    document.getElementById('clearBefore').style.display = 'none';
-    document.getElementById('compareBtn').disabled = true;
-};
-
-document.getElementById('clearAfter').onclick = () => {
-    selectedAfter = null;
-    document.getElementById('selectedAfter').innerHTML = '<i class="fas fa-search"></i> Select a scan';
-    document.getElementById('clearAfter').style.display = 'none';
-    document.getElementById('compareBtn').disabled = true;
-};
-
-// Compare
 document.getElementById('compareBtn').onclick = async () => {
     if (!selectedBefore || !selectedAfter) return;
-    
     document.getElementById('loadingState').style.display = 'flex';
     document.getElementById('resultsContainer').style.display = 'none';
-    
     try {
         const res = await fetch(`/api/compare/${selectedBefore.id}/${selectedAfter.id}`);
         const data = await res.json();
-        
         if (data.error) throw new Error(data.error);
-        
         renderResults(data);
         document.getElementById('loadingState').style.display = 'none';
         document.getElementById('resultsContainer').style.display = 'block';
-    } catch (err) {
+        document.getElementById('resultsContainer').scrollIntoView({ behavior: 'smooth' });
+    } catch(err) {
         document.getElementById('loadingState').style.display = 'none';
         alert('Error: ' + err.message);
     }
@@ -171,68 +173,64 @@ document.getElementById('compareBtn').onclick = async () => {
 
 function renderResults(data) {
     const s = data.summary;
-    
-    document.getElementById('resultsContainer').innerHTML = `
-        <div class="stats-grid">
-            <div class="stat-card fixed"><div class="stat-icon">✅</div><div class="stat-value">${s.fixed}</div><div class="stat-label">Fixed</div></div>
-            <div class="stat-card new"><div class="stat-icon">🆕</div><div class="stat-value">${s.new}</div><div class="stat-label">New</div></div>
-            <div class="stat-card persistent"><div class="stat-icon">🔄</div><div class="stat-value">${s.persistent}</div><div class="stat-label">Persistent</div></div>
-            <div class="stat-card score"><div class="stat-icon">📊</div><div class="stat-value ${s.score_change >= 0 ? 'positive' : 'negative'}">${s.score_change >= 0 ? '+' : ''}${s.score_change}</div><div class="stat-label">Score change</div><div class="stat-sub">${s.score_before} → ${s.score_after}</div></div>
-        </div>
-        
-        <div class="trend-alert" style="background:#1e293b; border-radius:16px; padding:20px; margin-bottom:24px;">
-            <div style="display:flex; align-items:center; gap:16px;">
-                <span style="font-size:32px;">${data.trend.icon || '📊'}</span>
-                <div>
-                    <strong>Trend: ${data.trend.trend || 'STABLE'}</strong>
-                    <p style="margin:4px 0 0 0; font-size:13px; color:#94a3b8;">${data.trend.message || ''}</p>
-                </div>
-            </div>
-        </div>
-        
-        <div class="panel" style="background:#1e293b; border-radius:16px; padding:20px; margin-bottom:24px;">
-            <div style="font-weight:600; margin-bottom:12px;">💡 Recommendations</div>
-            <ul style="margin:0; padding-left:20px;">
-                ${data.recommendations.map(r => `<li style="margin:8px 0; color:#cbd5e1;">${escapeHtml(r)}</li>`).join('')}
-            </ul>
-        </div>
-    `;
-}
+    const scoreDelta = s.score_change >= 0 ? `+${s.score_change}` : `${s.score_change}`;
+    const scoreColor = s.score_change > 0 ? '#22c55e' : s.score_change < 0 ? '#ef4444' : '#94a3b8';
 
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/[&<>]/g, function(m) {
-        if (m === '&') return '&amp;';
-        if (m === '<') return '&lt;';
-        if (m === '>') return '&gt;';
-        return m;
+    document.getElementById('driftCards').innerHTML = `
+        <div class="drift-card fixed-card"><div class="drift-card-icon"><i class="fas fa-check-circle"></i></div><div class="drift-card-body"><strong>${s.fixed}</strong><span>Fixed</span><small>Vulnerabilities resolved</small></div></div>
+        <div class="drift-card new-card"><div class="drift-card-icon"><i class="fas fa-circle-exclamation"></i></div><div class="drift-card-body"><strong>${s.new}</strong><span>New</span><small>New vulnerabilities found</small></div></div>
+        <div class="drift-card persistent-card"><div class="drift-card-icon"><i class="fas fa-arrows-rotate"></i></div><div class="drift-card-body"><strong>${s.persistent}</strong><span>Persistent</span><small>Still unresolved</small></div></div>
+        <div class="drift-card score-card"><div class="drift-card-icon" style="color:${scoreColor}"><i class="fas fa-gauge-high"></i></div><div class="drift-card-body"><strong style="color:${scoreColor}">${scoreDelta}</strong><span>Score Change</span><small>${s.score_before} → ${s.score_after}</small></div></div>`;
+
+    const tMap = {
+        improving:       { icon:'fas fa-arrow-trend-up',   color:'#22c55e', bg:'rgba(34,197,94,0.08)',  border:'#22c55e' },
+        improving_rapid: { icon:'fas fa-rocket',           color:'#22c55e', bg:'rgba(34,197,94,0.1)',   border:'#22c55e' },
+        degrading:       { icon:'fas fa-arrow-trend-down', color:'#ef4444', bg:'rgba(239,68,68,0.08)',  border:'#ef4444' },
+        degrading_rapid: { icon:'fas fa-skull-crossbones', color:'#ef4444', bg:'rgba(239,68,68,0.1)',   border:'#ef4444' },
+        stagnant:        { icon:'fas fa-minus',            color:'#f59e0b', bg:'rgba(245,158,11,0.08)', border:'#f59e0b' },
+        clean:           { icon:'fas fa-shield-check',     color:'#01dcba', bg:'rgba(1,220,186,0.08)',  border:'#01dcba' },
+    };
+    const t = tMap[(data.trend?.trend||'').toLowerCase()] || tMap.stagnant;
+    document.getElementById('trendBanner').innerHTML = `
+        <div class="trend-inner" style="background:${t.bg};border-left:4px solid ${t.border}">
+            <div class="trend-icon-wrap" style="color:${t.color}"><i class="${t.icon}" style="font-size:28px"></i></div>
+            <div class="trend-text"><strong style="color:${t.color};font-size:15px;font-weight:800">${data.trend?.trend||'STABLE'}</strong><p>${esc(data.trend?.message||'')}</p></div>
+        </div>`;
+
+    const sevKeys = ['critical','high','medium','low','info'];
+    const sevCols = {critical:'#7f1d1d',high:'#ef4444',medium:'#f97316',low:'#22c55e',info:'#64748b'};
+    const bf = s.severity_before||{}, af = s.severity_after||{};
+    document.getElementById('severityContent').innerHTML = '<canvas id="sevCompareChart" height="180"></canvas>';
+    if (sevChart) sevChart.destroy();
+    sevChart = new Chart(document.getElementById('sevCompareChart'), {
+        type: 'bar',
+        data: {
+            labels: sevKeys.map(k => k.charAt(0).toUpperCase()+k.slice(1)),
+            datasets: [
+                { label:'Before', data: sevKeys.map(k=>bf[k]||0), backgroundColor:'rgba(148,163,184,0.45)', borderColor:'#94a3b8', borderWidth:1.5, borderRadius:6 },
+                { label:'After',  data: sevKeys.map(k=>af[k]||0), backgroundColor: sevKeys.map(k=>sevCols[k]+'99'), borderColor: sevKeys.map(k=>sevCols[k]), borderWidth:1.5, borderRadius:6 }
+            ]
+        },
+        options: { responsive:true, plugins: { legend:{ labels:{color:'#64748b',font:{size:12}} }, tooltip:{backgroundColor:'#0f172a',padding:10,cornerRadius:8} }, scales: { x:{grid:{display:false},ticks:{color:'#64748b'}}, y:{grid:{color:'#f1f5f9'},ticks:{color:'#64748b',stepSize:1},beginAtZero:true} } }
     });
+
+    const recos = data.recommendations||[];
+    document.getElementById('recoContent').innerHTML = recos.length
+        ? recos.map(r=>`<li><i class="fas fa-check-circle"></i>${esc(r)}</li>`).join('')
+        : '<li class="reco-empty"><i class="fas fa-circle-info"></i>No specific recommendations</li>';
+
+    function vulnList(elId, countId, vulns, type) {
+        document.getElementById(countId).textContent = vulns.length;
+        const el = document.getElementById(elId);
+        if (!vulns.length) { el.innerHTML = `<div class="vuln-empty"><i class="fas fa-${type==='fixed'?'check':'inbox'}"></i><p>No ${type} vulnerabilities</p></div>`; return; }
+        el.innerHTML = vulns.map(v => {
+            const sev=(v.severity||'info').toLowerCase();
+            const c={critical:'#7f1d1d',high:'#ef4444',medium:'#f97316',low:'#22c55e',info:'#64748b'}[sev]||'#94a3b8';
+            return `<div class="vuln-row"><span class="vuln-dot" style="background:${c}"></span><div class="vuln-info"><b>${esc(v.title||v.name||'Unknown')}</b><span>${esc(v.category||sev)}</span></div><span class="vuln-sev" style="background:${c}18;color:${c}">${sev}</span></div>`;
+        }).join('');
+    }
+    vulnList('fixedList','fixedCount', data.fixed||[], 'fixed');
+    vulnList('newList','newCount', data.new_vulns||data.new||[], 'new');
 }
 </script>
-
-<style>
-.loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px; }
-.spinner { width: 48px; height: 48px; border: 3px solid #334155; border-top-color: #8b5cf6; border-radius: 50%; animation: spin 0.8s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-.stat-card { background: #1e293b; border-radius: 16px; padding: 20px; text-align: center; }
-.stat-value { font-size: 32px; font-weight: 700; margin: 8px 0; }
-.stat-value.positive { color: #22c55e; }
-.stat-value.negative { color: #ef4444; }
-.stat-label { color: #64748b; font-size: 13px; }
-.stat-sub { color: #475569; font-size: 11px; margin-top: 4px; }
-.selection-panel { display: flex; gap: 24px; justify-content: center; margin-bottom: 32px; flex-wrap: wrap; }
-.selection-card { flex: 1; min-width: 250px; background: #1e293b; border-radius: 16px; border: 1px solid #334155; overflow: hidden; }
-.selection-label { padding: 12px 16px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; }
-.badge { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
-.badge.before { background: #3b82f6; color: white; }
-.badge.after { background: #10b981; color: white; }
-.selected-scan-placeholder { text-align: center; padding: 20px; color: #64748b; }
-.vs-divider { width: 60px; text-align: center; font-weight: 700; color: #64748b; display: flex; align-items: center; justify-content: center; }
-.compare-action { text-align: center; margin-bottom: 40px; }
-.compare-btn { background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white; border: none; padding: 12px 32px; font-size: 16px; font-weight: 600; border-radius: 40px; cursor: pointer; }
-.compare-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.clear-selection { cursor: pointer; color: #ef4444; padding: 0 8px; }
-</style>
-
 {% endblock %}

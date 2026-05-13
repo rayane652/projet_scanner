@@ -76,3 +76,14 @@ document.addEventListener("click", function(e) {
         }
     }
 });
+/* ===== TOP SEARCH BAR ===== */
+function handleTopSearch(e) {
+    if (e.key === 'Enter') fireTopSearch();
+}
+
+function fireTopSearch() {
+    const q = document.getElementById('topSearchInput')?.value?.trim();
+    if (q) {
+        window.location.href = '/search?q=' + encodeURIComponent(q);
+    }
+}

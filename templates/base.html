@@ -42,7 +42,7 @@
 
     <!-- 🔥 NOUVEAU LIEN COMPARE 🔥 -->
     <a href="/compare" class="side-item {% if active=='compare' %}active{% endif %}">
-        <i class="fas fa-chart-line"></i>
+        <i class="fas fa-code-compare"></i>
         <span>Compare</span>
     </a>
 
@@ -61,9 +61,15 @@
     </div>
 
     <div class="right">
-        <div class="search-box">
-            <input type="text" placeholder="Search...">
-            <i class="fas fa-search"></i>
+        <div class="search-box" id="topSearchBox">
+            <input
+                type="text"
+                id="topSearchInput"
+                placeholder="Search&#x2026;"
+                autocomplete="off"
+                onkeydown="handleTopSearch(event)"
+            >
+            <i class="fas fa-search" onclick="fireTopSearch()" style="cursor:pointer"></i>
         </div>
 
         <!-- PROFILE -->

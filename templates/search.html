@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/search.css') }}">
+{% endblock %}
+
+{% block content %}
+
+<div class="search-page">
+
+    <!-- HEADER -->
+    <div class="search-header">
+        <div class="search-header-top">
+            <a href="javascript:history.back()" class="search-back-btn">
+                <i class="fas fa-arrow-left"></i>
+            </a>
+            <div class="search-bar-large">
+                <i class="fas fa-search"></i>
+                <input
+                    type="text"
+                    id="searchInput"
+                    value="{{ query }}"
+                    placeholder="Search scans, assets, vulnerabilities…"
+                    autofocus
+                    oninput="liveSearch(this.value)"
+                    onkeydown="if(event.key==='Enter') goSearch()"
+                >
+                <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearch()" style="display:none">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+
+        {% if query %}
+        <div class="search-meta">
+            <span>Showing results for <strong>"{{ query }}"</strong></span>
+            {% if total_results is defined %}
+            <span class="search-count-badge">{{ total_results }} result{{ 's' if total_results != 1 }}</span>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if not query %}
+    <!-- NO QUERY STATE -->
+    <div class="search-empty-state">
+        <div class="search-empty-icon">
+            <i class="fas fa-search"></i>
+        </div>
+        <h2>Search Vulnix</h2>
+        <p>Type in the search bar above to find scans, assets, vulnerabilities, CVEs, and more.</p>
+        <div class="search-tips">
+            <div class="search-tip"><i class="fas fa-server"></i><span>Search by asset name or IP address</span></div>
+            <div class="search-tip"><i class="fas fa-bug"></i><span>Find CVEs or vulnerability names</span></div>
+            <div class="search-tip"><i class="fas fa-shield-halved"></i><span>Look up scan results and reports</span></div>
+        </div>
+    </div>
+
+    {% elif results is defined and results %}
+
+    <!-- RESULTS -->
+    <div class="search-results" id="searchResults">
+
+        {% if results.scans %}
+        <div class="search-section">
+            <div class="search-section-head">
+                <i class="fas fa-file-alt"></i>
+                <h3>Scans</h3>
+                <span class="ss-count">{{ results.scans|length }}</span>
+            </div>
+            {% for item in results.scans %}
+            <a href="{{ url_for('result', scan_id=item.id) }}" class="search-result-card scan-result">
+                <div class="src-icon" style="background:#ede9fe;color:#7f30cb">
+                    <i class="fas fa-shield-halved"></i>
+                </div>
+                <div class="src-body">
+                    <strong>{{ item.machine_name or item.target }}</strong>
+                    <span>{{ item.target }} &nbsp;·&nbsp; {{ item.scan_type }} &nbsp;·&nbsp; {{ item.created_at[:10] if item.created_at else '' }}</span>
+                    {% if item.risk_level %}
+                    <div class="src-tags">
+                        <span class="src-tag severity-soft-{{ item.risk_level|lower }}">{{ item.risk_level }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <i class="fas fa-arrow-right src-arrow"></i>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if results.assets %}
+        <div class="search-section">
+            <div class="search-section-head">
+                <i class="fas fa-server"></i>
+                <h3>Assets</h3>
+                <span class="ss-count">{{ results.assets|length }}</span>
+            </div>
+            {% for item in results.assets %}
+            <a href="{{ url_for('result', scan_id=item.latest_scan_id) }}" class="search-result-card">
+                <div class="src-icon" style="background:#dbeafe;color:#2563eb">
+                    <i class="fas fa-server"></i>
+                </div>
+                <div class="src-body">
+                    <strong>{{ item.name }}</strong>
+                    <span>{{ item.target }}</span>
+                </div>
+                <i class="fas fa-arrow-right src-arrow"></i>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if results.vulnerabilities %}
+        <div class="search-section">
+            <div class="search-section-head">
+                <i class="fas fa-bug"></i>
+                <h3>Vulnerabilities</h3>
+                <span class="ss-count">{{ results.vulnerabilities|length }}</span>
+            </div>
+            {% for item in results.vulnerabilities %}
+            <a href="{{ url_for('result', scan_id=item.scan_id) }}#findings"  class="search-result-card">
+                <div class="src-icon severity-soft-{{ item.severity|lower }}" style="width:42px;height:42px;border-radius:11px;display:grid;place-items:center;flex-shrink:0">
+                    <i class="fas fa-triangle-exclamation"></i>
+                </div>
+                <div class="src-body">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.category }} &nbsp;·&nbsp; Scan #{{ item.scan_id }}</span>
+                    <div class="src-tags">
+                        <span class="src-tag severity-soft-{{ item.severity|lower }}">{{ item.severity }}</span>
+                        {% if item.cve_id %}<span class="src-tag cve-tag">{{ item.cve_id }}</span>{% endif %}
+                    </div>
+                </div>
+                <i class="fas fa-arrow-right src-arrow"></i>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% if results.ports %}
+<div class="search-section">
+    <div class="search-section-head">
+        <i class="fas fa-network-wired"></i>
+        <h3>Ports</h3>
+        <span class="ss-count">{{ results.ports|length }}</span>
+    </div>
+
+    {% for item in results.ports %}
+    <a href="{{ url_for('result', scan_id=item.scan_id) }}#ports"
+       class="search-result-card">
+
+        <div class="src-icon"
+             style="background:#dbeafe;color:#2563eb">
+
+            <i class="fas fa-plug"></i>
+        </div>
+
+        <div class="src-body">
+            <strong>
+                Port {{ item.port }}
+            </strong>
+
+            <span>
+                {{ item.service }}
+                {% if item.product %}
+                    · {{ item.product }}
+                {% endif %}
+            </span>
+        </div>
+
+        <i class="fas fa-arrow-right src-arrow"></i>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+{% if results.webpaths %}
+<div class="search-section">
+    <div class="search-section-head">
+        <i class="fas fa-link"></i>
+        <h3>Web Paths</h3>
+        <span class="ss-count">{{ results.webpaths|length }}</span>
+    </div>
+
+    {% for item in results.webpaths %}
+    <a href="{{ url_for('result', scan_id=item.scan_id) }}"
+       class="search-result-card">
+
+        <div class="src-icon"
+             style="background:#dcfce7;color:#16a34a">
+
+            <i class="fas fa-globe"></i>
+        </div>
+
+        <div class="src-body">
+            <strong>{{ item.path }}</strong>
+
+            <span>
+                HTTP {{ item.status }}
+            </span>
+        </div>
+
+        <i class="fas fa-arrow-right src-arrow"></i>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+    </div>
+
+    {% elif query %}
+    <!-- NO RESULTS -->
+    <div class="search-no-results">
+        <div class="search-no-icon">
+            <i class="fas fa-magnifying-glass-minus"></i>
+        </div>
+        <h2>No results found</h2>
+        <p>Nothing matched <strong>"{{ query }}"</strong>. Try a different search term.</p>
+        <div class="search-suggestions">
+            <p>Suggestions:</p>
+            <ul>
+                <li>Check the spelling of your search</li>
+                <li>Try a shorter or more general term</li>
+                <li>Search by IP address, asset name, or CVE ID</li>
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+function goSearch() {
+    const q = document.getElementById('searchInput').value.trim();
+    if (q) window.location.href = '/search?q=' + encodeURIComponent(q);
+}
+function clearSearch() {
+    document.getElementById('searchInput').value = '';
+    document.getElementById('searchClearBtn').style.display = 'none';
+    document.getElementById('searchInput').focus();
+}
+function liveSearch(val) {
+    document.getElementById('searchClearBtn').style.display = val ? '' : 'none';
+}
+// Init
+if (document.getElementById('searchInput').value) {
+    document.getElementById('searchClearBtn').style.display = '';
+}
+</script>
+
+{% endblock %}

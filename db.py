@@ -18,6 +18,15 @@ def init_db():
         google_sub TEXT
     )
     """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ai_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scan_id INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
 
     columns = {row[1] for row in cursor.execute("PRAGMA table_info(users)").fetchall()}
     if "auth_provider" not in columns:

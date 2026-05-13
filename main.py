@@ -1185,8 +1185,6 @@ def result():
     selected_scan_id = request.args.get("scan_id", type=int)
     if selected_scan_id:
         selected_scan = fetch_scan(selected_scan_id, user_email)
-    elif scans:
-        selected_scan = fetch_scan(scans[0]["id"], user_email)
 
     result_payload = None
     target = None
@@ -1206,7 +1204,27 @@ def result():
                 result_payload = None
 
     findings = (result_payload or {}).get("findings", [])
+        # ───────── LOAD AI CHAT HISTORY ─────────
 
+    ai_messages = []
+
+    if selected_scan:
+
+        conn = get_db_connection()
+
+        rows = conn.execute(
+            """
+            SELECT role, content
+            FROM ai_messages
+            WHERE scan_id = ?
+            ORDER BY id ASC
+            """,
+            (selected_scan["id"],)
+        ).fetchall()
+
+        conn.close()
+
+        ai_messages = [dict(row) for row in rows]
 
     return render_template(
         "result.html",
@@ -1218,6 +1236,7 @@ def result():
         target=target,
         scan_type=scan_type,
         scan_error=scan_error,
+        ai_messages=ai_messages,
     )
 
 
@@ -1235,11 +1254,6 @@ def delete_scan(scan_id):
     )
     conn.commit()
     conn.close()
-
-    remaining_scans = fetch_user_scans(user_email)
-
-    if remaining_scans:
-        return redirect(url_for("result", scan_id=remaining_scans[0]["id"]))
 
     return redirect(url_for("result"))
 
@@ -1271,7 +1285,39 @@ def ai_chat(scan_id):
         for m in history
         if isinstance(m, dict) and m.get("role") in ("user", "assistant") and m.get("content")
     ]
-    return jsonify({"answer": answer_scan_question(payload, question, safe_history)})
+    answer = answer_scan_question(
+        payload,
+        question,
+        safe_history
+    )
+
+    conn = get_db_connection()
+
+    conn.execute(
+        """
+        INSERT INTO ai_messages
+        (scan_id, role, content)
+        VALUES (?, ?, ?)
+        """,
+        (scan_id, "user", question)
+    )
+
+    conn.execute(
+        """
+        INSERT INTO ai_messages
+        (scan_id, role, content)
+        VALUES (?, ?, ?)
+        """,
+        (scan_id, "assistant", answer)
+    )
+
+    conn.commit()
+
+    conn.close()
+
+    return jsonify({
+        "answer": answer
+    })
 
 
 # ================= SIGNUP =================
@@ -1649,6 +1695,171 @@ def generate_fix():
             "source":      "fallback",
         }), 500
 
+@app.route("/search")
+def search():
+
+    if "user" not in session:
+        return redirect(url_for("home"))
+
+    query = request.args.get("q", "").strip()
+    user_email = session["user"]["email"]
+
+    results = {
+        "scans": [],
+        "assets": [],
+        "vulnerabilities": [],
+        "ports": [],
+        "webpaths": [],
+        "ai": []
+    }
+
+    total_results = 0
+
+    if query:
+
+        q = query.lower()
+
+        scans = fetch_user_scans(user_email)
+        assets = fetch_user_assets(user_email)
+
+        # ───────── ASSETS ─────────
+        for asset in assets:
+
+            asset_blob = json.dumps(asset).lower()
+
+            if q in asset_blob:
+                results["assets"].append(asset)
+
+        # ───────── SCANS ─────────
+        for scan in scans:
+
+            full_scan = fetch_scan(scan["id"], user_email)
+
+            if not full_scan:
+                continue
+
+            payload = {}
+
+            searchable_text = f"""
+            {scan.get('machine_name','')}
+            {scan.get('target','')}
+            {scan.get('scan_type','')}
+            """
+
+            if full_scan.get("result_json"):
+
+                try:
+                    payload = json.loads(full_scan["result_json"])
+
+                    searchable_text += json.dumps(payload)
+
+                except:
+                    pass
+
+            searchable_text = searchable_text.lower()
+
+            # MATCH WHOLE SCAN
+            if q in searchable_text:
+
+                scan_copy = dict(scan)
+
+                if isinstance(payload, dict):
+                    scan_copy["risk_level"] = payload.get("risk_level")
+
+                results["scans"].append(scan_copy)
+
+            # ONLY SECURITY PAYLOADS
+            if not isinstance(payload, dict):
+                continue
+
+            raw = payload.get("raw", {})
+
+            # ───────── PORTS ─────────
+            ports = raw.get("ports", [])
+
+            for port in ports:
+
+                port_blob = json.dumps(port).lower()
+
+                if q in port_blob:
+
+                    results["ports"].append({
+                        "port": port.get("port"),
+                        "service": port.get("service", "Unknown"),
+                        "product": port.get("product", ""),
+                        "scan_id": scan["id"]
+                    })
+
+            # ───────── VULNERABILITIES ─────────
+            findings = payload.get("findings", [])
+
+            for vuln in findings:
+
+                vuln_blob = json.dumps(vuln).lower()
+
+                if q in vuln_blob:
+
+                    results["vulnerabilities"].append({
+                        "title": vuln.get("title", "Finding"),
+                        "category": vuln.get("category", ""),
+                        "severity": vuln.get("severity", "INFO"),
+                        "cve_id": vuln.get("cve_id"),
+                        "scan_id": scan["id"]
+                    })
+
+            # ───────── WEB PATHS ─────────
+            web_paths = raw.get("web", {}).get("paths", [])
+
+            for path in web_paths:
+
+                path_blob = json.dumps(path).lower()
+
+                if q in path_blob:
+
+                    results["webpaths"].append({
+                        "path": path.get("path", "/"),
+                        "status": path.get("status"),
+                        "scan_id": scan["id"]
+                    })
+
+            # ───────── AI ANALYSIS ─────────
+            ai_blob = json.dumps(payload.get("ai", {})).lower()
+
+            if q in ai_blob:
+
+                results["ai"].append({
+                    "title": "AI Security Analysis",
+                    "scan_id": scan["id"]
+                })
+
+        # REMOVE DUPLICATES
+        seen = set()
+        unique_scans = []
+
+        for s in results["scans"]:
+            if s["id"] not in seen:
+                seen.add(s["id"])
+                unique_scans.append(s)
+
+        results["scans"] = unique_scans
+
+        total_results = (
+            len(results["scans"])
+            + len(results["assets"])
+            + len(results["vulnerabilities"])
+            + len(results["ports"])
+            + len(results["webpaths"])
+            + len(results["ai"])
+        )
+
+    return render_template(
+        "search.html",
+        user=session["user"],
+        active="search",
+        query=query,
+        results=results,
+        total_results=total_results,
+    )
 
 # ================= LOGOUT =================
 @app.route("/logout")

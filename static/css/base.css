@@ -105,7 +105,9 @@ p, span {
 .search-box input::placeholder {
    color: #94a3b8;
 }
-
+.search-box:focus-within {
+    border-color: rgba(53, 14, 90, 0.822);
+}
 /* ICONS */
 .nav-icon {
     width: 20px;
