@@ -1,11 +1,12 @@
 """
 ai_remediation.py — VulniX Auto-Fix Engine
-Priority: static library → OpenRouter AI → recommendation fallback
+Priority: static library → OpenRouter AI (with model fallbacks) → recommendation fallback
 """
 
 import json
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
@@ -16,10 +17,18 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL     = "https://openrouter.ai/api/v1/chat/completions"
-MODEL              = "mistralai/mistral-7b-instruct:free"
-MAX_WORKERS        = 4
-MAX_TOKENS         = 700
-TEMPERATURE        = 0.3
+
+# Multiple fallback models — tries each one until one works
+MODEL_FALLBACKS = [
+    "qwen/qwen-2.5-7b-instruct:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "google/gemma-2-9b-it:free",
+    "mistralai/mistral-7b-instruct:free",
+]
+
+MAX_WORKERS  = 4
+MAX_TOKENS   = 700
+TEMPERATURE  = 0.3
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -27,6 +36,7 @@ TEMPERATURE        = 0.3
 # ─────────────────────────────────────────────────────────────────────────────
 
 _STATIC = {
+    # ── Web security headers ──────────────────────────────────────────────────
     "x-frame-options": {
         "title":       "Add X-Frame-Options header",
         "explanation": "Missing X-Frame-Options allows attackers to embed your page in an iframe for clickjacking attacks.",
@@ -76,6 +86,7 @@ _STATIC = {
         "commands":    ["sudo nginx -t && sudo systemctl reload nginx"],
         "config":      "# ── Nginx ──────────────────────────────────────────\nserver_tokens off;\n\n# ── Apache: httpd.conf or apache2.conf ─────────────\nServerTokens Prod\nServerSignature Off",
     },
+    # ── SSH ───────────────────────────────────────────────────────────────────
     "permitrootlogin": {
         "title":       "Disable SSH root login",
         "explanation": "Direct root SSH means an attacker only needs one credential — no privilege escalation needed.",
@@ -108,6 +119,7 @@ _STATIC = {
         ],
         "config":      "# ── /etc/ssh/sshd_config ───────────────────────────\nProtocol 2\nCiphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com\nMACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com",
     },
+    # ── Package updates ───────────────────────────────────────────────────────
     "package update": {
         "title":       "Apply all pending package updates",
         "explanation": "Outdated packages contain public CVEs with ready-made exploits.",
@@ -132,6 +144,56 @@ _STATIC = {
         ],
         "config":      "",
     },
+    "missing windows update": {
+        "title":       "Install missing Windows updates",
+        "explanation": "Missing Windows updates leave known CVEs unpatched on the host.",
+        "impact":      "Attackers exploit publicly known vulnerabilities — patching is the highest-ROI security action.",
+        "commands":    [
+            "# PowerShell: install all pending updates",
+            "Install-Module PSWindowsUpdate -Force -Confirm:$false",
+            "Get-WindowsUpdate -Install -AcceptAll -AutoReboot",
+            "# Or via Windows Update settings",
+            "Start-Process ms-settings:windowsupdate",
+        ],
+        "config":      "# ── Group Policy: enable automatic updates ──────────\n# Computer Configuration > Administrative Templates\n# > Windows Components > Windows Update\n# Set: Configure Automatic Updates = Enabled (option 4 = Auto download and install)",
+    },
+    "windows update": {
+        "title":       "Apply pending Windows updates",
+        "explanation": "Windows updates include critical security patches for OS and built-in components.",
+        "impact":      "Unpatched Windows hosts are prime targets — many ransomware strains exploit known Windows CVEs.",
+        "commands":    [
+            "Install-Module PSWindowsUpdate -Force -Confirm:$false",
+            "Get-WindowsUpdate -Install -AcceptAll -AutoReboot",
+        ],
+        "config":      "",
+    },
+    "update required": {
+        "title":       "Install required update",
+        "explanation": "A package or firmware update is available and should be applied to fix known vulnerabilities.",
+        "impact":      "Unpatched software can be exploited using publicly available CVEs and exploit kits.",
+        "commands":    [
+            "# Windows: install via PowerShell",
+            "Install-Module PSWindowsUpdate -Force -Confirm:$false",
+            "Get-WindowsUpdate -Install -AcceptAll -AutoReboot",
+            "# Linux: update specific package",
+            "sudo apt update && sudo apt install --only-upgrade <package-name>",
+        ],
+        "config":      "",
+    },
+    "firmware": {
+        "title":       "Update firmware to latest version",
+        "explanation": "Outdated firmware can contain vulnerabilities that bypass OS-level security controls.",
+        "impact":      "Firmware vulnerabilities are hard to detect and can persist across OS reinstalls.",
+        "commands":    [
+            "# Windows: update via Windows Update or manufacturer tool",
+            "Install-Module PSWindowsUpdate -Force -Confirm:$false",
+            "Get-WindowsUpdate -Install -AcceptAll -AutoReboot",
+            "# Check manufacturer site for firmware update tool (e.g. Lenovo System Update)",
+            "# Lenovo: https://support.lenovo.com/solutions/ht003029",
+        ],
+        "config":      "",
+    },
+    # ── File permissions ──────────────────────────────────────────────────────
     "world-writable": {
         "title":       "Fix world-writable file permissions",
         "explanation": "World-writable files in sensitive directories can be overwritten by any local user.",
@@ -139,7 +201,6 @@ _STATIC = {
         "commands":    [
             "find /etc /var/www /opt -xdev -type f -perm -0002 -exec chmod o-w {} \\;",
             "find /etc /var/www /opt -xdev -type d -perm -0002 -exec chmod o-w {} \\;",
-            "# Verify — should return nothing",
             "find /etc /var/www /opt -xdev -perm -0002 2>/dev/null",
         ],
         "config":      "",
@@ -154,6 +215,7 @@ _STATIC = {
         ],
         "config":      "",
     },
+    # ── Sudo ──────────────────────────────────────────────────────────────────
     "nopasswd": {
         "title":       "Remove NOPASSWD from sudoers",
         "explanation": "NOPASSWD lets the account run sudo without a password — trivial escalation for any process running as that user.",
@@ -161,6 +223,164 @@ _STATIC = {
         "commands":    ["sudo visudo"],
         "config":      "# ── /etc/sudoers ────────────────────────────────────\n# REMOVE:\n#   username ALL=(ALL) NOPASSWD: ALL\n\n# REPLACE with specific commands:\nusername ALL=(ALL) /usr/bin/systemctl restart nginx\n\n# Validate: sudo visudo -c",
     },
+    # ── Windows RPC / NetBIOS ─────────────────────────────────────────────────
+    "msrpc": {
+        "title":       "Restrict MSRPC (Port 135) access",
+        "explanation": "MSRPC on port 135 enables remote Windows service enumeration and RPC-based exploitation.",
+        "impact":      "Attackers use it for lateral movement, service enumeration, and exploiting RPC vulnerabilities like MS03-026.",
+        "commands":    [
+            "# Block from internet, allow from LAN (PowerShell as Admin)",
+            "New-NetFirewallRule -DisplayName 'Block MSRPC WAN' -Direction Inbound -Protocol TCP -LocalPort 135 -RemoteAddress Internet -Action Block",
+            "New-NetFirewallRule -DisplayName 'Allow MSRPC LAN' -Direction Inbound -Protocol TCP -LocalPort 135 -RemoteAddress LocalSubnet -Action Allow",
+        ],
+        "config":      "# netsh (CMD as Admin)\nnetsh advfirewall firewall add rule name=\"Block MSRPC\" protocol=TCP dir=in localport=135 action=block\nnetsh advfirewall firewall add rule name=\"Allow MSRPC LAN\" protocol=TCP dir=in localport=135 remoteip=LocalSubnet action=allow",
+    },
+    "port 135": {
+        "title":       "Block public MSRPC port (135)",
+        "explanation": "Port 135 (MSRPC) should never be reachable from the internet — internal Windows use only.",
+        "impact":      "Remote exploitation of RPC services can lead to SYSTEM-level compromise.",
+        "commands":    [
+            "New-NetFirewallRule -DisplayName 'Block MSRPC WAN' -Direction Inbound -Protocol TCP -LocalPort 135 -RemoteAddress Internet -Action Block",
+            "New-NetFirewallRule -DisplayName 'Allow MSRPC LAN' -Direction Inbound -Protocol TCP -LocalPort 135 -RemoteAddress LocalSubnet -Action Allow",
+        ],
+        "config":      "# netsh (CMD as Admin)\nnetsh advfirewall firewall add rule name=\"Block Port 135\" protocol=TCP dir=in localport=135 action=block\nnetsh advfirewall firewall add rule name=\"Allow Port 135 LAN\" protocol=TCP dir=in localport=135 remoteip=LocalSubnet action=allow",
+    },
+    "netbios": {
+        "title":       "Block NetBIOS ports (137/138/139)",
+        "explanation": "NetBIOS leaks hostname, workgroup, and share information. Should never be exposed publicly.",
+        "impact":      "Attackers enumerate network resources, usernames, and shares for lateral movement.",
+        "commands":    [
+            "netsh advfirewall firewall add rule name='Block NetBIOS 137' protocol=UDP dir=in localport=137 action=block",
+            "netsh advfirewall firewall add rule name='Block NetBIOS 138' protocol=UDP dir=in localport=138 action=block",
+            "netsh advfirewall firewall add rule name='Block NetBIOS 139' protocol=TCP dir=in localport=139 action=block",
+        ],
+        "config":      "",
+    },
+    "port 139": {
+        "title":       "Block NetBIOS Session Service (Port 139)",
+        "explanation": "Port 139 is NetBIOS over TCP — leaks system info and enables legacy SMB connections.",
+        "impact":      "Enables enumeration and exploitation of Windows shares.",
+        "commands":    [
+            "netsh advfirewall firewall add rule name='Block Port 139' protocol=TCP dir=in localport=139 action=block",
+        ],
+        "config":      "",
+    },
+    "port 445": {
+        "title":       "Block public SMB port (445)",
+        "explanation": "Port 445 is SMB Direct. EternalBlue (WannaCry/NotPetya) specifically targets this port.",
+        "impact":      "Remote code execution without authentication on unpatched systems.",
+        "commands":    [
+            "netsh advfirewall firewall add rule name='Block SMB 445' protocol=TCP dir=in localport=445 action=block",
+            "sudo ufw deny 445",
+        ],
+        "config":      "# /etc/samba/smb.conf\n[global]\n    server min protocol = SMB2\n    restrict anonymous = 2",
+    },
+    # ── Remote access ─────────────────────────────────────────────────────────
+    "winrm": {
+        "title":       "Restrict WinRM (Port 5985/5986) access",
+        "explanation": "WinRM allows remote PowerShell execution. Publicly exposed it is a direct remote management interface.",
+        "impact":      "An attacker with valid credentials gets full remote command execution — equivalent to RDP but scriptable.",
+        "commands":    [
+            "New-NetFirewallRule -DisplayName 'Block WinRM WAN' -Direction Inbound -Protocol TCP -LocalPort 5985 -RemoteAddress Internet -Action Block",
+            "New-NetFirewallRule -DisplayName 'Allow WinRM LAN' -Direction Inbound -Protocol TCP -LocalPort 5985 -RemoteAddress LocalSubnet -Action Allow",
+            "Set-Item WSMan:\\localhost\\Service\\IPv4Filter '192.168.0.0/16'",
+        ],
+        "config":      "# PowerShell: restrict WinRM to trusted subnet\nSet-Item WSMan:\\localhost\\Service\\IPv4Filter \"192.168.1.0/24\"\nSet-Item WSMan:\\localhost\\Service\\IPv6Filter \"\"",
+    },
+    "port 5985": {
+        "title":       "Restrict WinRM HTTP (Port 5985)",
+        "explanation": "Port 5985 is WinRM over HTTP — remote PowerShell without encryption.",
+        "impact":      "Full remote command execution for anyone with valid Windows credentials.",
+        "commands":    [
+            "New-NetFirewallRule -DisplayName 'Block WinRM 5985 WAN' -Direction Inbound -Protocol TCP -LocalPort 5985 -RemoteAddress Internet -Action Block",
+        ],
+        "config":      "# Restrict WinRM to trusted subnet\nSet-Item WSMan:\\localhost\\Service\\IPv4Filter \"192.168.1.0/24\"",
+    },
+    "port 5986": {
+        "title":       "Restrict WinRM HTTPS (Port 5986)",
+        "explanation": "Port 5986 is WinRM over HTTPS. Even encrypted, it should never face the public internet.",
+        "impact":      "Remote PowerShell execution accessible to any internet host with valid credentials.",
+        "commands":    [
+            "New-NetFirewallRule -DisplayName 'Block WinRM 5986 WAN' -Direction Inbound -Protocol TCP -LocalPort 5986 -RemoteAddress Internet -Action Block",
+        ],
+        "config":      "# Restrict WinRM HTTPS to trusted subnet\nSet-Item WSMan:\\localhost\\Service\\IPv4Filter \"192.168.1.0/24\"",
+    },
+    "rdp": {
+        "title":       "Restrict RDP access",
+        "explanation": "Publicly exposed RDP is the #1 ransomware entry point.",
+        "impact":      "Brute-force or credential stuffing gives direct GUI access to the system.",
+        "commands":    [
+            "netsh advfirewall firewall add rule name='RDP Allow' protocol=TCP dir=in localport=3389 remoteip=YOUR.IP action=allow",
+            "netsh advfirewall firewall add rule name='RDP Block All' protocol=TCP dir=in localport=3389 action=block",
+        ],
+        "config":      "",
+    },
+    "port 3389": {
+        "title":       "Restrict RDP port (3389)",
+        "explanation": "Exposed RDP is the #1 ransomware entry point. Restrict to VPN or trusted IPs only.",
+        "impact":      "Brute-force or credential stuffing gives direct GUI access with no further steps.",
+        "commands":    [
+            "netsh advfirewall firewall add rule name='RDP Allow' protocol=TCP dir=in localport=3389 remoteip=YOUR.IP action=allow",
+            "netsh advfirewall firewall add rule name='RDP Block All' protocol=TCP dir=in localport=3389 action=block",
+        ],
+        "config":      "",
+    },
+    # ── Databases ─────────────────────────────────────────────────────────────
+    "port 3306": {
+        "title":       "Block public MySQL port (3306)",
+        "explanation": "MySQL should only be accessible from localhost or app servers — never the public internet.",
+        "impact":      "Brute-force attacks on MySQL can lead to full database compromise and data exfiltration.",
+        "commands":    [
+            "sudo ufw deny 3306",
+            "sudo sed -i 's/^bind-address.*/bind-address = 127.0.0.1/' /etc/mysql/mysql.conf.d/mysqld.cnf",
+            "sudo systemctl restart mysql",
+        ],
+        "config":      "# ── /etc/mysql/mysql.conf.d/mysqld.cnf ─────────────\n[mysqld]\nbind-address = 127.0.0.1",
+    },
+    "port 5432": {
+        "title":       "Block public PostgreSQL port (5432)",
+        "explanation": "PostgreSQL should only accept connections from localhost or trusted app servers.",
+        "impact":      "Exposed PostgreSQL is a direct path to full database access and potential OS-level exploitation.",
+        "commands":    [
+            "sudo ufw deny 5432",
+            "sudo sed -i \"s/^listen_addresses.*/listen_addresses = 'localhost'/\" /etc/postgresql/*/main/postgresql.conf",
+            "sudo systemctl restart postgresql",
+        ],
+        "config":      "# ── /etc/postgresql/XX/main/postgresql.conf ─────────\nlisten_addresses = 'localhost'\n\n# ── pg_hba.conf ──────────────────────────────────────\nlocal all all                trust\nhost  all all 127.0.0.1/32  md5",
+    },
+    "port 6379": {
+        "title":       "Block public Redis port (6379)",
+        "explanation": "Redis has no authentication by default. A public Redis port is a critical data exposure risk.",
+        "impact":      "Full read/write access to all cached data, potential remote code execution via Redis commands.",
+        "commands":    [
+            "sudo ufw deny 6379",
+            "sudo sed -i 's/^bind.*/bind 127.0.0.1/' /etc/redis/redis.conf",
+            "sudo systemctl restart redis",
+        ],
+        "config":      "# ── /etc/redis/redis.conf ───────────────────────────\nbind 127.0.0.1\nprotected-mode yes\nrequirepass YOUR_STRONG_PASSWORD",
+    },
+    "port 27017": {
+        "title":       "Block public MongoDB port (27017)",
+        "explanation": "MongoDB without auth on a public port is one of the most common mass data breach causes.",
+        "impact":      "Complete database access — read, write, delete all data — no credentials needed if auth is off.",
+        "commands":    [
+            "sudo ufw deny 27017",
+            "sudo sed -i 's/^#*  bindIp.*/  bindIp: 127.0.0.1/' /etc/mongod.conf",
+            "sudo systemctl restart mongod",
+        ],
+        "config":      "# ── /etc/mongod.conf ────────────────────────────────\nnet:\n  port: 27017\n  bindIp: 127.0.0.1\n\nsecurity:\n  authorization: enabled",
+    },
+    "port 1433": {
+        "title":       "Block public MSSQL port (1433)",
+        "explanation": "SQL Server should never accept connections from the public internet.",
+        "impact":      "Direct database access enabling data exfiltration or xp_cmdshell OS exploitation.",
+        "commands":    [
+            "netsh advfirewall firewall add rule name='Block MSSQL' protocol=TCP dir=in localport=1433 action=block",
+            "netsh advfirewall firewall add rule name='Allow MSSQL LAN' protocol=TCP dir=in localport=1433 remoteip=LocalSubnet action=allow",
+        ],
+        "config":      "",
+    },
+    # ── Cleartext protocols ───────────────────────────────────────────────────
     "ftp": {
         "title":       "Disable FTP — switch to SFTP",
         "explanation": "FTP sends credentials and data in cleartext over the network.",
@@ -182,116 +402,10 @@ _STATIC = {
         "title":       "Disable SMBv1",
         "explanation": "SMBv1 has critical flaws including EternalBlue (MS17-010) used in WannaCry.",
         "impact":      "Remote code execution without authentication on any unpatched host.",
-        "commands":    [
-            "# Windows PowerShell",
-            "Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force",
-        ],
+        "commands":    ["Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force"],
         "config":      "# ── /etc/samba/smb.conf ─────────────────────────────\n[global]\n    server min protocol = SMB2\n    ntlm auth = no\n    restrict anonymous = 2",
     },
-    "rdp": {
-        "title":       "Restrict RDP access",
-        "explanation": "Publicly exposed RDP is the #1 ransomware entry point.",
-        "impact":      "Brute-force or credential-stuffing gives direct GUI access to the machine.",
-        "commands":    [
-            "netsh advfirewall firewall add rule name='RDP Allow' protocol=TCP dir=in localport=3389 remoteip=YOUR.IP action=allow",
-            "netsh advfirewall firewall add rule name='RDP Block' protocol=TCP dir=in localport=3389 action=block",
-        ],
-        "config":      "",
-    },
-    "winrm": {
-        "title":       "Restrict WinRM (Port 5985/5986) access",
-        "explanation": "WinRM allows remote PowerShell execution. Exposed publicly it gives attackers a direct management interface.",
-        "impact":      "An attacker with credentials gets full remote command execution — equivalent to RDP but scriptable.",
-        "commands":    [
-            "# Allow WinRM only from trusted admin IPs",
-            "netsh advfirewall firewall add rule name='WinRM Allow' protocol=TCP dir=in localport=5985 remoteip=YOUR.ADMIN.IP action=allow",
-            "netsh advfirewall firewall add rule name='WinRM Block' protocol=TCP dir=in localport=5985 action=block",
-            "# Also restrict port 5986 (HTTPS WinRM)",
-            "netsh advfirewall firewall add rule name='WinRM HTTPS Allow' protocol=TCP dir=in localport=5986 remoteip=YOUR.ADMIN.IP action=allow",
-            "netsh advfirewall firewall add rule name='WinRM HTTPS Block' protocol=TCP dir=in localport=5986 action=block",
-        ],
-        "config":      "# PowerShell: restrict WinRM to specific subnet\nSet-Item WSMan:\\localhost\\Service\\IPv4Filter \"192.168.1.0/24\"\nSet-Item WSMan:\\localhost\\Service\\IPv6Filter \"\"\n\n# Verify current listeners\nGet-WSManInstance winrm/config/listener -Enumerate",
-    },
-    "5985": {
-        "title":       "Restrict WinRM (Port 5985) access",
-        "explanation": "Port 5985 is WinRM HTTP. Exposed publicly it gives attackers a remote PowerShell management interface.",
-        "impact":      "Full remote command execution for anyone who obtains valid credentials.",
-        "commands":    [
-            "netsh advfirewall firewall add rule name='WinRM Allow' protocol=TCP dir=in localport=5985 remoteip=YOUR.ADMIN.IP action=allow",
-            "netsh advfirewall firewall add rule name='WinRM Block' protocol=TCP dir=in localport=5985 action=block",
-        ],
-        "config":      "# Restrict WinRM to trusted subnet (PowerShell)\nSet-Item WSMan:\\localhost\\Service\\IPv4Filter \"192.168.1.0/24\"",
-    },
-    "5986": {
-        "title":       "Restrict WinRM HTTPS (Port 5986) access",
-        "explanation": "Port 5986 is WinRM over HTTPS. Even with TLS, it should never be exposed to the public internet.",
-        "impact":      "Remote PowerShell execution accessible to any internet host that has credentials.",
-        "commands":    [
-            "netsh advfirewall firewall add rule name='WinRM HTTPS Allow' protocol=TCP dir=in localport=5986 remoteip=YOUR.ADMIN.IP action=allow",
-            "netsh advfirewall firewall add rule name='WinRM HTTPS Block' protocol=TCP dir=in localport=5986 action=block",
-        ],
-        "config":      "# Restrict WinRM HTTPS to trusted subnet (PowerShell)\nSet-Item WSMan:\\localhost\\Service\\IPv4Filter \"192.168.1.0/24\"",
-    },
-    "port 22": {
-        "title":       "Harden SSH (Port 22) exposure",
-        "explanation": "SSH exposed publicly is constantly targeted by automated brute-force bots.",
-        "impact":      "Weak credentials or vulnerable SSH versions can be exploited for full shell access.",
-        "commands":    [
-            "# Change to a non-standard port (optional)",
-            "sudo sed -i 's/^#*Port.*/Port 2222/' /etc/ssh/sshd_config",
-            "sudo systemctl restart sshd",
-            "# Or restrict with firewall",
-            "sudo ufw allow from YOUR.IP to any port 22",
-            "sudo ufw deny 22",
-        ],
-        "config":      "# ── /etc/ssh/sshd_config ───────────────────────────\nPermitRootLogin no\nPasswordAuthentication no\nMaxAuthTries 3\nLoginGraceTime 30\nPubkeyAuthentication yes",
-    },
-    "port 3306": {
-        "title":       "Block public MySQL port (3306)",
-        "explanation": "MySQL should never be exposed to the public internet — only accessible from localhost or app servers.",
-        "impact":      "Brute-force attacks on MySQL can lead to database compromise and full data exfiltration.",
-        "commands":    [
-            "sudo ufw deny 3306",
-            "# Or in MySQL: bind to localhost only",
-            "sudo sed -i 's/^bind-address.*/bind-address = 127.0.0.1/' /etc/mysql/mysql.conf.d/mysqld.cnf",
-            "sudo systemctl restart mysql",
-        ],
-        "config":      "# ── /etc/mysql/mysql.conf.d/mysqld.cnf ─────────────\n[mysqld]\nbind-address = 127.0.0.1\nskip-networking = 0",
-    },
-    "port 5432": {
-        "title":       "Block public PostgreSQL port (5432)",
-        "explanation": "PostgreSQL should only accept connections from localhost or trusted app servers, never the public internet.",
-        "impact":      "Exposed PostgreSQL is a direct path to full database access and potential OS-level exploitation.",
-        "commands":    [
-            "sudo ufw deny 5432",
-            "sudo sed -i \"s/^listen_addresses.*/listen_addresses = 'localhost'/\" /etc/postgresql/*/main/postgresql.conf",
-            "sudo systemctl restart postgresql",
-        ],
-        "config":      "# ── /etc/postgresql/XX/main/postgresql.conf ─────────\nlisten_addresses = 'localhost'\n\n# ── /etc/postgresql/XX/main/pg_hba.conf ──────────────\n# Allow only local connections\nlocal all all                trust\nhost  all all 127.0.0.1/32  md5",
-    },
-    "port 6379": {
-        "title":       "Block public Redis port (6379)",
-        "explanation": "Redis has no authentication by default. A public Redis port is a critical data exposure risk.",
-        "impact":      "Full read/write access to all cached data, potential for remote code execution via Redis commands.",
-        "commands":    [
-            "sudo ufw deny 6379",
-            "# Bind to localhost in redis.conf",
-            "sudo sed -i 's/^bind.*/bind 127.0.0.1/' /etc/redis/redis.conf",
-            "sudo systemctl restart redis",
-        ],
-        "config":      "# ── /etc/redis/redis.conf ───────────────────────────\nbind 127.0.0.1\nprotected-mode yes\nrequirepass YOUR_STRONG_PASSWORD",
-    },
-    "port 27017": {
-        "title":       "Block public MongoDB port (27017)",
-        "explanation": "MongoDB without auth on a public port is one of the most common causes of mass data breaches.",
-        "impact":      "Complete database access — read, write, delete all data — no credentials needed if auth is disabled.",
-        "commands":    [
-            "sudo ufw deny 27017",
-            "sudo sed -i 's/^#*  bindIp.*/  bindIp: 127.0.0.1/' /etc/mongod.conf",
-            "sudo systemctl restart mongod",
-        ],
-        "config":      "# ── /etc/mongod.conf ────────────────────────────────\nnet:\n  port: 27017\n  bindIp: 127.0.0.1\n\nsecurity:\n  authorization: enabled",
-    },
+    # ── Windows security ──────────────────────────────────────────────────────
     "firewall disabled": {
         "title":       "Enable Windows Firewall",
         "explanation": "A disabled firewall removes all network-level filtering.",
@@ -313,6 +427,168 @@ _STATIC = {
         ],
         "config":      "",
     },
+    # ── Authenticated scan INFO findings — security advice ────────────────────
+    "installed hotfix": {
+        "title":       "Review installed hotfixes for gaps",
+        "explanation": "The hotfix list shows which patches are applied. Cross-check against the latest Microsoft Security Updates to identify any missing patches.",
+        "impact":      "Gaps in hotfix history mean known CVEs are unpatched and exploitable.",
+        "commands":    [
+            "# List all installed hotfixes sorted by date",
+            "Get-HotFix | Sort-Object InstalledOn -Descending | Format-Table HotFixID, Description, InstalledOn",
+            "# Compare with latest Windows security updates",
+            "# https://msrc.microsoft.com/update-guide",
+            "# Install missing updates",
+            "Install-Module PSWindowsUpdate -Force; Get-WindowsUpdate -Install -AcceptAll",
+        ],
+        "config":      "",
+    },
+    "installed software": {
+        "title":       "Audit and harden installed software",
+        "explanation": "Review all installed programs — remove unused software, keep everything updated, and ensure no unauthorized tools are present.",
+        "impact":      "Every installed program is an attack surface. Unused or outdated software contains known CVEs that can be exploited.",
+        "commands":    [
+            "# List all installed software",
+            "Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | Select DisplayName, DisplayVersion | Sort DisplayName",
+            "# Uninstall an unwanted program",
+            "Get-Package 'ProgramName' | Uninstall-Package",
+            "# Check for outdated software with winget",
+            "winget upgrade --all",
+        ],
+        "config":      "# Best practices for software inventory:\n# 1. Remove all software not required for business use\n# 2. Enable automatic updates for remaining software\n# 3. Use an application allowlist (Windows Defender WDAC)\n# 4. Review quarterly with: winget upgrade --all",
+    },
+    "installed packages": {
+        "title":       "Audit installed packages for vulnerabilities",
+        "explanation": "Review all installed packages and remove unused ones. Audit for known CVEs using a vulnerability scanner.",
+        "impact":      "Unused packages increase attack surface. Outdated packages contain known exploits.",
+        "commands":    [
+            "# List outdated packages (Debian/Ubuntu)",
+            "apt list --upgradable 2>/dev/null",
+            "sudo apt update && sudo apt upgrade -y",
+            "# Remove unused packages",
+            "sudo apt autoremove -y",
+            "# Audit packages for CVEs",
+            "sudo apt install debsecan && debsecan",
+        ],
+        "config":      "",
+    },
+    "local users": {
+        "title":       "Audit local user accounts",
+        "explanation": "Review all local accounts — disable unused accounts, enforce strong passwords, and ensure no unauthorized users have admin access.",
+        "impact":      "Unused or overprivileged accounts are prime targets for lateral movement after initial compromise.",
+        "commands":    [
+            "# List all local users (Windows)",
+            "Get-LocalUser | Format-Table Name, Enabled, LastLogon",
+            "# Disable an unused account",
+            "Disable-LocalUser -Name 'OldAccount'",
+            "# Linux: list non-system users",
+            "awk -F: '$3 >= 1000 {print $1, $3}' /etc/passwd",
+            "# Lock a Linux account",
+            "sudo usermod -L username",
+        ],
+        "config":      "# Linux: enforce password policy in /etc/security/pwquality.conf\nminlen = 12\ndcredit = -1\nucredit = -1\nocredit = -1\nlcredit = -1\nretry = 3",
+    },
+    "listening services": {
+        "title":       "Review and harden listening services",
+        "explanation": "Audit all services listening on open ports. Disable any service not required for business operations.",
+        "impact":      "Every listening service is an attack surface. Unnecessary services that contain vulnerabilities can be exploited even if not publicly exposed.",
+        "commands":    [
+            "# Windows: list all listening ports with process",
+            "netstat -ano | findstr LISTENING",
+            "Get-Process -Id (netstat -ano | findstr LISTENING | ForEach-Object { ($_ -split '\\s+')[5] })",
+            "# Linux: list listening services",
+            "ss -tunlp",
+            "# Disable an unnecessary service (Linux)",
+            "sudo systemctl stop <service> && sudo systemctl disable <service>",
+        ],
+        "config":      "",
+    },
+    "cron jobs": {
+        "title":       "Audit cron jobs for malicious or risky entries",
+        "explanation": "Review all scheduled tasks and cron jobs. Attackers often plant persistence via cron or scheduled tasks.",
+        "impact":      "A malicious cron entry runs attacker code automatically with elevated privileges — a common persistence mechanism.",
+        "commands":    [
+            "# List all cron jobs for all users",
+            "for user in $(cut -d: -f1 /etc/passwd); do crontab -l -u $user 2>/dev/null | grep -v '^#'; done",
+            "# Check system-wide cron",
+            "ls /etc/cron.* && cat /etc/cron.d/*",
+            "# Windows: list scheduled tasks",
+            "Get-ScheduledTask | Where-Object { $_.State -ne 'Disabled' } | Format-Table TaskName, TaskPath, State",
+        ],
+        "config":      "",
+    },
+    "failed login": {
+        "title":       "Investigate failed login attempts",
+        "explanation": "Multiple failed logins indicate brute-force activity or credential stuffing against this host.",
+        "impact":      "Successful brute-force gives attacker shell access. High failure rates indicate active targeting.",
+        "commands":    [
+            "# Linux: check failed SSH logins",
+            "sudo grep 'Failed password' /var/log/auth.log | tail -20",
+            "sudo lastb | head -20",
+            "# Block repeat offenders with fail2ban",
+            "sudo apt install fail2ban -y",
+            "# Windows: check failed logins",
+            "Get-EventLog -LogName Security -InstanceId 4625 -Newest 20 | Select TimeGenerated, Message",
+        ],
+        "config":      "# ── /etc/fail2ban/jail.local ────────────────────────\n[sshd]\nenabled  = true\nport     = ssh\nfilter   = sshd\nlogpath  = /var/log/auth.log\nmaxretry = 5\nbantime  = 3600\nfindtime = 600",
+    },
+    "last login": {
+        "title":       "Review login history for anomalies",
+        "explanation": "Check login history for unexpected users, unusual times, or logins from unknown IPs.",
+        "impact":      "Undetected unauthorized logins allow attackers to operate unnoticed for extended periods.",
+        "commands":    [
+            "# Linux: recent logins",
+            "last -20",
+            "# Check for logins from unusual IPs",
+            "last | awk '{print $3}' | sort | uniq -c | sort -rn",
+            "# Windows: successful logins",
+            "Get-EventLog -LogName Security -InstanceId 4624 -Newest 20 | Select TimeGenerated, Message",
+        ],
+        "config":      "",
+    },
+    "privileges": {
+        "title":       "Review and restrict user privileges",
+        "explanation": "Audit enabled privileges and remove any not required for the account's role.",
+        "impact":      "Overprivileged accounts allow attackers to perform high-impact actions immediately after compromise.",
+        "commands":    [
+            "# Windows: check current user privileges",
+            "whoami /priv",
+            "# List admin group members",
+            "net localgroup administrators",
+            "# Remove a user from Administrators",
+            "Remove-LocalGroupMember -Group 'Administrators' -Member 'username'",
+            "# Linux: check sudo rights",
+            "sudo -l",
+        ],
+        "config":      "",
+    },
+    "admin share": {
+        "title":       "Review and restrict administrative shares",
+        "explanation": "Admin shares (C$, ADMIN$, IPC$) give full remote filesystem access to administrators. Disable if not needed.",
+        "impact":      "Attackers with admin credentials can access the entire filesystem remotely via admin shares.",
+        "commands":    [
+            "# List all shares",
+            "net share",
+            "# Disable admin shares permanently",
+            "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters' -Name 'AutoShareWks' -Value 0",
+            "# Disable IPC$ remote registry access",
+            "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurePipeServers\\winreg' -Name 'AllowedPaths' -Value ''",
+        ],
+        "config":      "",
+    },
+    "startup": {
+        "title":       "Audit startup programs for persistence",
+        "explanation": "Review all programs that run at startup — attackers use startup entries for persistence.",
+        "impact":      "Malicious startup entries survive reboots and re-establish attacker access automatically.",
+        "commands":    [
+            "# Windows: list startup programs",
+            "Get-CimInstance Win32_StartupCommand | Select Name, Command, Location",
+            "# Remove a suspicious startup entry",
+            "Remove-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'SuspiciousProgram'",
+            "# Linux: check systemd services",
+            "systemctl list-unit-files --state=enabled",
+        ],
+        "config":      "",
+    },
 }
 
 
@@ -320,11 +596,51 @@ _STATIC = {
 #  Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _match_static(title: str, description: str) -> dict | None:
+def _match_static(title: str, description: str, severity: str = "") -> dict | None:
     haystack = f"{title} {description}".lower()
+
+    # Exact keyword match
     for kw, fix in _STATIC.items():
         if kw in haystack:
             return {**fix, "source": "static"}
+
+    # Generic fallback — catches ANY "TCP/UDP Port XXXX / service" finding
+    m = re.search(r'(?:tcp|udp)\s+port\s+(\d+)(?:\s*/\s*(\S+))?', haystack)
+    if m:
+        port    = m.group(1)
+        service = (m.group(2) or f"port {port}").upper()
+        return {
+            "title":       f"Restrict access to {service} (Port {port})",
+            "explanation": f"Port {port} ({service}) is reachable from the scanner. Services should only be exposed to the networks that actually need them.",
+            "impact":      "An attacker can fingerprint the service, attempt exploitation, or use it as a pivot point for lateral movement.",
+            "commands":    [
+                f"# Linux — block with ufw",
+                f"sudo ufw deny {port}",
+                f"sudo ufw allow from 192.168.0.0/16 to any port {port}",
+                f"# Windows — block with netsh",
+                f"netsh advfirewall firewall add rule name=\"Block {service} {port}\" protocol=TCP dir=in localport={port} action=block",
+                f"netsh advfirewall firewall add rule name=\"Allow {service} LAN\" protocol=TCP dir=in localport={port} remoteip=LocalSubnet action=allow",
+            ],
+            "config":      f"# ── iptables (Linux) ─────────────────────────────\n# Block from internet\n-A INPUT -p tcp --dport {port} -j DROP\n# Allow from trusted internal subnet only\n-A INPUT -s 192.168.0.0/16 -p tcp --dport {port} -j ACCEPT\n\n# Save rules\nsudo iptables-save > /etc/iptables/rules.v4",
+            "source":      "static",
+        }
+
+    # INFO severity fallback — general security hardening tips
+    if severity.upper() == "INFO":
+        return {
+            "title":       f"Security review: {title}",
+            "explanation": f"This is an informational finding. Review the collected data and apply the relevant hardening steps below.",
+            "impact":      "Informational findings provide visibility into the host configuration. Misconfigurations found here can be exploited if left unreviewed.",
+            "commands":    [
+                "# Review the finding details in the scan report",
+                "# Cross-reference with your security baseline",
+                "# Apply any missing hardening steps",
+                "# Document accepted risks with a justification",
+            ],
+            "config":      "# Security hardening checklist for authenticated findings:\n# 1. Remove/disable unused accounts, services, and software\n# 2. Apply least-privilege to all accounts\n# 3. Enable logging and monitoring\n# 4. Keep all software and OS up to date\n# 5. Review firewall rules quarterly",
+            "source":      "static",
+        }
+
     return None
 
 
@@ -357,29 +673,50 @@ Rules:
 
 
 def _ask_ai(prompt: str) -> str:
+    """Try each model in MODEL_FALLBACKS until one works."""
     if not OPENROUTER_API_KEY:
         raise EnvironmentError("OPENROUTER_API_KEY not set in .env")
-    resp = requests.post(
-        OPENROUTER_URL,
-        headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                 "Content-Type":  "application/json"},
-        json={
-            "model":       MODEL,
-            "messages":    [
-                {"role": "system",
-                 "content": "You are a cybersecurity expert. Respond only with valid JSON."},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": TEMPERATURE,
-            "max_tokens":  MAX_TOKENS,
-        },
-        timeout=45,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if "choices" not in data or not data["choices"]:
-        raise ValueError(f"Unexpected API response: {data}")
-    return data["choices"][0]["message"]["content"]
+
+    last_error = None
+    for model in MODEL_FALLBACKS:
+        try:
+            resp = requests.post(
+                OPENROUTER_URL,
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                         "Content-Type":  "application/json"},
+                json={
+                    "model":       model,
+                    "messages":    [
+                        {"role": "system",
+                         "content": "You are a cybersecurity expert. Respond only with valid JSON."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": TEMPERATURE,
+                    "max_tokens":  MAX_TOKENS,
+                },
+                timeout=45,
+            )
+            if resp.status_code == 404:
+                logger.warning("Model '%s' returned 404, trying next model...", model)
+                last_error = requests.HTTPError(f"404 for model {model}", response=resp)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            if "choices" not in data or not data["choices"]:
+                continue
+            logger.info("Auto-fix used model: %s", model)
+            return data["choices"][0]["message"]["content"]
+        except requests.HTTPError as e:
+            last_error = e
+            # Don't retry on auth or rate-limit errors
+            if e.response is not None and e.response.status_code in (401, 429):
+                raise
+            continue
+        except Exception as e:
+            last_error = e
+            continue
+
+    raise last_error or RuntimeError("All OpenRouter models failed.")
 
 
 def _parse(raw: str, title: str) -> dict:
@@ -425,25 +762,29 @@ def _process_one(finding: dict) -> dict:
     ev    = (finding.get("evidence")       or "").strip()
     rec   = (finding.get("recommendation") or "").strip()
 
-    # 1. Static library (instant)
-    static = _match_static(title, desc)
+    # 1. Static library (instant, no API)
+    static = _match_static(title, desc, sev)
     if static:
         return {**static, "title": title}
 
-    # 2. AI via OpenRouter
+    # 2. AI via OpenRouter (tries multiple models on 404)
     if OPENROUTER_API_KEY:
         try:
             raw = _ask_ai(_build_prompt(title, desc, sev, ev, rec))
             return _parse(raw, title)
         except requests.HTTPError as e:
             status = e.response.status_code if e.response else "?"
-            msg = {401: "Invalid API key.", 429: "Rate limit hit.",
-                   500: "Server error."}.get(status, str(e))
-            logger.error("HTTP %s for '%s': %s", status, title, msg)
-            return _fallback(title, rec, msg)
+            friendly = {
+                401: "OpenRouter API key is invalid. Check OPENROUTER_API_KEY in .env",
+                404: "No AI model available right now — showing recommendation.",
+                429: "OpenRouter rate limit reached. The fix will be available shortly — try again in a few seconds.",
+                500: "OpenRouter server error. Try again later.",
+            }.get(status, f"API error (HTTP {status})")
+            logger.error("HTTP %s for '%s': %s", status, title, friendly)
+            return _fallback(title, rec, friendly)
         except Exception as e:
             logger.error("AI fix failed for '%s': %s", title, e)
-            return _fallback(title, rec, str(e))
+            return _fallback(title, rec, "AI generation failed. Showing recommendation fallback.")
 
     # 3. Fallback
     return _fallback(title, rec)
