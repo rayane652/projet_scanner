@@ -437,6 +437,54 @@
 .badge.safe     { background: #dcfce7; color: #166534; }
 
 /* ── RESPONSIVE ── */
+/* ── SECURITY EVOLUTION ── */
+.evolution-card {
+    background: var(--color-background-primary, #fff);
+    border: 1px solid var(--color-border-tertiary, #e5e7eb);
+    border-radius: 16px;
+    padding: 20px;
+    margin: 12px;
+    transition: box-shadow .2s;
+}
+.evolution-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+.evo-header { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.evo-asset { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.evo-dates { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #64748b; }
+.evo-dates i { font-size: 10px; color: #94a3b8; }
+.evo-trend-badge { font-size: 12px; padding: 4px 12px; border-radius: 20px; font-weight: 600; margin-left: auto; }
+.trend-improving_rapid { background: #d1fae5; color: #065f46; }
+.trend-improving { background: #d1fae5; color: #065f46; }
+.trend-stable_improving { background: #dbeafe; color: #1e40af; }
+.trend-stable { background: #f3f4f6; color: #6b7280; }
+.trend-degrading { background: #fee2e2; color: #991b1b; }
+.evo-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.evo-stat { text-align: center; padding: 12px 8px; background: #f8fafc; border-radius: 12px; }
+.evo-stat-val { display: block; font-size: 22px; font-weight: 700; }
+.evo-stat-lbl { display: block; font-size: 11px; color: #64748b; margin-top: 2px; }
+.evo-stat-val.good, .good { color: #10b981; }
+.evo-stat-val.bad, .bad { color: #ef4444; }
+.evo-ports { display: flex; gap: 20px; font-size: 13px; margin-bottom: 12px; padding: 8px 0; border-top: 1px solid #f1f5f9; }
+.evo-regressions, .evo-improvements { font-size: 13px; margin-bottom: 12px; padding: 10px 14px; border-radius: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.evo-regressions { background: #fef2f2; }
+.evo-improvements { background: #f0fdf4; }
+.evo-reg-item, .evo-imp-item { font-size: 12px; padding: 2px 8px; border-radius: 6px; }
+.evo-reg-item { background: #fee2e2; color: #991b1b; }
+.evo-imp-item { background: #dcfce7; color: #166534; }
+.evo-sev-bars { margin-top: 12px; }
+.clickable-sev{cursor:pointer;transition:transform .15s,box-shadow .15s;border-radius:6px;padding:2px}
+.clickable-sev:hover{transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,.06);background:#f1f5f9}
+.evo-sev-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.evo-sev-label { width: 70px; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-align: center; color: #fff; flex-shrink: 0; }
+.evo-sev-label.critical { background: #7f1d1d; }
+.evo-sev-label.high { background: #ef4444; }
+.evo-sev-label.medium { background: #f97316; }
+.evo-sev-label.low { background: #22c55e; }
+.evo-sev-bar-track { flex: 1; display: flex; height: 22px; border-radius: 8px; overflow: hidden; background: #f1f5f9; min-width: 100px; }
+.evo-sev-bar { display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; transition: width .4s; }
+.evo-sev-fixed { background: #10b981; }
+.evo-sev-new { background: #ef4444; }
+.evo-sev-nums { font-size: 11px; color: #64748b; width: 60px; text-align: right; flex-shrink: 0; }
+
 @media (max-width: 1100px) {
     .charts-row { grid-template-columns: 1fr 1fr; }
     .charts-row .chart-panel:last-child { grid-column: span 2; }

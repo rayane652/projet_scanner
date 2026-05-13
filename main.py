@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from datetime import datetime, timedelta
 from collections import defaultdict
 from modules.ai_remediation import generate_remediation
-from modules.scan_comparator import ScanComparator
+
 
 # Load .env file (GEMINI_API_KEY etc.)
 try:
@@ -156,7 +156,20 @@ def get_google_oauth_config():
 
 
 def execute_scan(scan_type, scan_mode, target, form_data):
+    scan_scope = form_data.get("scan_scope", "host")
+
     if scan_type == "security":
+        if scan_scope == "network":
+            from modules.network_scanner import run_network_scan
+            result = run_network_scan(
+                target,
+                profile=form_data.get("profile", "quick"),
+                scan_method=form_data.get("tcp_scan_method") or "connect",
+                include_udp=bool(form_data.get("include_udp")),
+            )
+            result["scan_scope"] = "network"
+            return result
+
         ip = resolve_host(target)
         if not ip:
             return {
@@ -237,9 +250,6 @@ def execute_scan(scan_type, scan_mode, target, form_data):
 
     if scan_type == "web":
         return scan_website(target)
-
-    if scan_type == "cve":
-        return search_cves(target, "")
 
     return {"error": "Unsupported scan type"}
 
@@ -505,6 +515,16 @@ def decorate_result_payload(payload):
     if not isinstance(payload, dict) or payload.get("error"):
         return payload
 
+    if payload.get("type") == "network":
+        nc = (payload.get("aggregated") or {}).get("severity_counts") or {}
+        payload["risk_score"] = min(100, nc.get("critical", 0) * 25 + nc.get("high", 0) * 16 + nc.get("medium", 0) * 8 + nc.get("low", 0) * 3)
+        payload["risk_level"] = risk_level_from_score(payload["risk_score"])
+        payload["risk_class"] = payload["risk_level"].lower()
+        payload["severity_counts"] = nc
+        payload["severity_breakdown"] = build_severity_breakdown(nc)
+        payload["severity_ring_style"] = build_severity_ring_style(nc)
+        return payload
+
     summary = summarize_scan_payload(payload)
     payload["risk_score"] = max(0, min(100, _to_int(summary["risk_score"])))
     payload["risk_level"] = summary["risk_level"]
@@ -594,16 +614,23 @@ def extract_os_badge(payload):
             text_parts.extend(str(port.get("service") or "") for port in ports if isinstance(port, dict))
         raw_web = raw.get("web") if isinstance(raw, dict) else {}
         if isinstance(raw_web, dict):
+            techs = raw_web.get("technologies") or []
+            tech_str = " ".join(
+                t.get("name", str(t)) if isinstance(t, dict) else str(t)
+                for t in (techs if isinstance(techs, list) else [])
+            )
             text_parts.extend([
                 str(raw_web.get("server") or ""),
                 str(raw_web.get("powered_by") or ""),
-                " ".join(raw_web.get("technologies") or [])
-                if isinstance(raw_web.get("technologies"), list)
-                else "",
+                tech_str,
             ])
+        payload_techs = payload.get("technologies") or []
         text_parts.extend([
             str(payload.get("server") or ""),
-            " ".join(payload.get("technologies") or []) if isinstance(payload.get("technologies"), list) else "",
+            " ".join(
+                t.get("name", str(t)) if isinstance(t, dict) else str(t)
+                for t in (payload_techs if isinstance(payload_techs, list) else [])
+            ),
         ])
     elif isinstance(payload, list):
         detected_ports.update(
@@ -746,7 +773,7 @@ def build_dashboard_data(user_email):
     done_scans = sum(1 for s in scans if s["status"] == "done")
  
     severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-    scan_type_counts = {"security": 0, "web": 0, "port": 0, "cve": 0}
+    scan_type_counts = {"security": 0, "web": 0}
     total_vulns = 0
     fixed_vulns = 0
  
@@ -815,9 +842,9 @@ def build_dashboard_data(user_email):
  
     completion_rate = int((done_scans / total_scans) * 100) if total_scans else 0
 
-    # 🔥 AJOUTE ICI avant le return 🔥
-    last_comparison = get_last_comparison(user_email)
- 
+    from modules.scan_comparator import build_comparisons_for_user
+    scan_comparisons = build_comparisons_for_user(scans, lambda sid: fetch_scan(sid, user_email))
+  
     return {
         "total_scans": total_scans,
         "running_scans": running_scans,
@@ -840,7 +867,7 @@ def build_dashboard_data(user_email):
             "high": [trend_data[d]["high"] for d in trend_days],
             "medium": [trend_data[d]["medium"] for d in trend_days],
         },
-        "last_comparison": last_comparison  # 🔥 AJOUTE ICI 🔥
+        "scan_comparisons": scan_comparisons,
     }
 
 def debug_scan_result(user_email):
@@ -866,94 +893,7 @@ def debug_scan_result(user_email):
         except Exception as e:
             print(f"Error parsing: {e}")
 
-def get_last_comparison(user_email):
-    """Compare the last two scans for the SAME asset (by machine_name)"""
-    conn = get_db_connection()
-    
-    rows = conn.execute("""
-        SELECT target, machine_name, result_json, created_at
-        FROM scans
-        WHERE user_email = ? 
-        AND scan_type = 'security' 
-        AND status = 'done'
-        AND result_json IS NOT NULL
-        ORDER BY created_at DESC
-    """, (user_email,)).fetchall()
-    conn.close()
-    
-    if len(rows) < 2:
-        return None
-    
-    # Group by machine_name (or target if no machine_name)
-    assets = {}
-    for row in rows:
-        key = row["machine_name"] if row["machine_name"] else row["target"]
-        if key not in assets:
-            assets[key] = []
-        assets[key].append({
-            "target": row["target"],
-            "machine_name": row["machine_name"],
-            "result_json": row["result_json"],
-            "created_at": row["created_at"]
-        })
-    
-    print(f"DEBUG: Assets found: {list(assets.keys())}")
-    
-    # Find asset with at least 2 scans
-    for asset_name, scans in assets.items():
-        if len(scans) >= 2:
-            # Sort by date (most recent first)
-            scans.sort(key=lambda x: x["created_at"], reverse=True)
-            scan_new = scans[0]
-            scan_old = scans[1]
-            
-            print(f"DEBUG: Comparing {asset_name}: {scan_old['created_at'][:16]} vs {scan_new['created_at'][:16]}")
-            
-            try:
-                data_new = json.loads(scan_new["result_json"])
-                data_old = json.loads(scan_old["result_json"])
-                
-                # Get vulnerability counts
-                vulns_old = len(data_old.get("vulnerabilities", []))
-                vulns_new = len(data_new.get("vulnerabilities", []))
-                score_old = data_old.get("risk_score", 50)
-                score_new = data_new.get("risk_score", 50)
-                
-                fixed = max(0, vulns_old - vulns_new)
-                new_vulns = max(0, vulns_new - vulns_old)
-                persistent = vulns_new - new_vulns
-                
-                if score_old > 0:
-                    improvement = round((score_new - score_old) / score_old * 100, 1)
-                else:
-                    improvement = 0
-                
-                print(f"DEBUG: score_old={score_old}, score_new={score_new}, improvement={improvement}%")
-                
-                # Simple English message
-                if new_vulns > 0:
-                    msg = f"⚠️ {new_vulns} new vulnerability detected." if new_vulns == 1 else f"⚠️ {new_vulns} new vulnerabilities detected."
-                elif fixed > 0:
-                    msg = f"✅ {fixed} vulnerabilities fixed. Score +{improvement}%."
-                else:
-                    msg = f"📊 Security score: {score_old} → {score_new} ({improvement:+}%)"
-                
-                return {
-                    "improvement": improvement,
-                    "fixed": fixed,
-                    "new": new_vulns,
-                    "persistent": persistent,
-                    "ai_message": msg,
-                    "scan_name": asset_name,
-                    "score_before": score_old,
-                    "score_after": score_new,
-                    "has_data": True
-                }
-            except Exception as e:
-                print(f"Error parsing {asset_name}: {e}")
-                continue
-    
-    return None
+
 
 def _guess_service(port):
     COMMON = {
@@ -990,68 +930,7 @@ def dashboard():
         dashboard_data=dashboard_data,
     )
 
-# ================= SCAN COMPARISON =================
-
-@app.route("/compare")
-def compare_page():
-    """Page de sélection de deux scans à comparer"""
-    if "user" not in session:
-        return redirect(url_for("home"))
-    
-    user_email = session["user"]["email"]
-    scans = fetch_user_scans(user_email)
-    
-    # Filtrer uniquement les scans "done" de type security
-    valid_scans = [
-        s for s in scans 
-        if s["status"] == "done" and s["scan_type"] == "security"
-    ]
-    
-    return render_template(
-        "compare.html",
-        user=session["user"],
-        active="compare",
-        scans=valid_scans,
-    )
-
-
-@app.route("/api/compare/<int:scan_id_before>/<int:scan_id_after>")
-def api_compare_scans(scan_id_before, scan_id_after):
-    """API endpoint pour comparer deux scans"""
-    if "user" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    
-    user_email = session["user"]["email"]
-    
-    scan_before = fetch_scan(scan_id_before, user_email)
-    scan_after = fetch_scan(scan_id_after, user_email)
-    
-    if not scan_before or not scan_after:
-        return jsonify({"error": "Scan not found"}), 404
-    
-    # Charger les résultats
-    payload_before, err1 = load_scan_result(scan_before)
-    payload_after, err2 = load_scan_result(scan_after)
-    
-    if err1 or err2 or not payload_before or not payload_after:
-        return jsonify({"error": "Could not load scan results"}), 500
-    
-    # Décoration des payloads
-    payload_before = decorate_result_payload(payload_before)
-    payload_after = decorate_result_payload(payload_after)
-    
-    from modules.scan_comparator import ScanComparator
-    
-    comparator = ScanComparator(
-        payload_before,
-        payload_after,
-        scan1_meta={"created_at": scan_before.get("created_at")},
-        scan2_meta={"created_at": scan_after.get("created_at")},
-    )
-    
-    comparison = comparator.compare()
-    
-    return jsonify(comparison)
+# ================= SCAN COMPARISON (inline in dashboard) =================
 
 
 @app.route("/api/scan_history/<target>")
@@ -1075,6 +954,20 @@ def api_scan_history(target):
     conn.close()
     
     return jsonify([dict(row) for row in rows])
+
+
+@app.route("/api/host_deep_scan", methods=["POST"])
+def api_host_deep_scan():
+    if "user" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    ip = data.get("ip", "")
+    if not ip:
+        return jsonify({"error": "No IP provided"}), 400
+    from modules.network_scanner import scan_host_deep
+    result = scan_host_deep(ip)
+    return jsonify(result)
+
 
 # ================= SCAN PAGE =================
 @app.route("/scan")
@@ -1118,6 +1011,8 @@ def run_scan():
         "auth_ssh_key": request.form.get("auth_ssh_key"),
         "tcp_scan_method": request.form.get("tcp_scan_method", "connect"),
         "include_udp": request.form.get("include_udp") in {"1", "on", "true"},
+        "scan_scope": request.form.get("scan_scope", "host"),
+        "profile": request.form.get("profile", "quick"),
     }
 
     conn = get_db_connection()

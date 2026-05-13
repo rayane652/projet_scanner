@@ -1,413 +1,285 @@
-"""
-Scan Comparison Engine for Vulnix
-Security Drift Detection - Compare two scans and track security evolution
-"""
-
 import json
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
 
-
-class ScanComparator:
-    """Compare deux scans et détecte les changements de sécurité"""
-    
-    SEVERITY_ORDER = {
-        "CRITICAL": 0,
-        "HIGH": 1,
-        "MEDIUM": 2,
-        "LOW": 3,
-        "INFO": 4,
-        "UNKNOWN": 5,
-    }
-    
-    SEVERITY_POINTS = {
-        "CRITICAL": 25,
-        "HIGH": 16,
-        "MEDIUM": 8,
-        "LOW": 3,
-        "INFO": 1,
-    }
-    
-    def __init__(self, scan1: Dict, scan2: Dict, scan1_meta: Dict = None, scan2_meta: Dict = None):
-        """
-        Args:
-            scan1: Premier scan (avant correction)
-            scan2: Deuxième scan (après correction)
-            scan1_meta: Métadonnées du premier scan (date, type, etc.)
-            scan2_meta: Métadonnées du deuxième scan
-        """
-        self.scan1 = scan1
-        self.scan2 = scan2
-        self.scan1_meta = scan1_meta or {}
-        self.scan2_meta = scan2_meta or {}
-        
-        self.vulns1 = self._extract_vulnerabilities(scan1)
-        self.vulns2 = self._extract_vulnerabilities(scan2)
-        self.ports1 = self._extract_ports(scan1)
-        self.ports2 = self._extract_ports(scan2)
-        
-    def _extract_vulnerabilities(self, scan: Dict) -> Dict[str, Dict]:
-        """Extrait toutes les vulnérabilités d'un scan"""
-        vulns = {}
-        
-        # Pour security scan
-        findings = scan.get("findings", [])
-        for finding in findings:
-            vuln_id = self._get_finding_id(finding)
-            if vuln_id:
-                vulns[vuln_id] = {
-                    "id": vuln_id,
-                    "title": finding.get("name", finding.get("title", "")),
-                    "severity": finding.get("severity", "INFO").upper(),
-                    "description": finding.get("detail", finding.get("description", "")),
-                    "remediation": finding.get("recommendation", ""),
-                    "evidence": finding.get("evidence", ""),
-                    "category": finding.get("category", "Finding"),
-                    "port": finding.get("metadata", {}).get("port"),
-                    "service": finding.get("metadata", {}).get("service"),
-                }
-        
-        # Pour scanned_items
-        for item in scan.get("scanned_items", []):
-            vuln_id = item.get("title", "")
-            if vuln_id and vuln_id not in vulns:
-                vulns[vuln_id] = {
-                    "id": vuln_id,
-                    "title": item.get("title", ""),
-                    "severity": item.get("severity", "INFO").upper(),
-                    "description": item.get("description", ""),
-                    "remediation": item.get("recommendation", ""),
-                    "evidence": item.get("evidence", ""),
-                    "category": item.get("category", "Finding"),
-                    "port": None,
-                    "service": None,
-                }
-        
-        # Pour CVEs dans les ports
-        for port in scan.get("open_ports", []):
-            for cve in port.get("cves", []):
-                cve_id = cve.get("id", cve.get("cve", ""))
-                if cve_id:
-                    vulns[cve_id] = {
-                        "id": cve_id,
-                        "title": cve_id,
-                        "severity": cve.get("severity", "INFO").upper(),
-                        "description": cve.get("description", ""),
-                        "remediation": port.get("recommendation", "Patch the affected service"),
-                        "evidence": f"Port {port.get('port')} - {port.get('service')}",
-                        "category": "CVE",
-                        "port": port.get("port"),
-                        "service": port.get("service"),
-                    }
-        
-        return vulns
-    
-    def _get_finding_id(self, finding: Dict) -> str:
-        """Génère un ID unique pour un finding"""
-        name = finding.get("name", finding.get("title", ""))
-        asset = finding.get("asset", "")
-        if name and asset:
-            return f"{name}__{asset}"
-        return name or finding.get("detail", "")[:50]
-    
-    def _extract_ports(self, scan: Dict) -> Dict[int, Dict]:
-        """Extrait les ports ouverts d'un scan"""
-        ports = {}
-        
-        for port in scan.get("open_ports", []):
-            port_num = port.get("port")
-            if port_num:
-                ports[port_num] = {
-                    "port": port_num,
-                    "protocol": port.get("protocol", "tcp"),
-                    "service": port.get("service", "unknown"),
-                    "product": port.get("product", ""),
-                    "version": port.get("version", ""),
-                    "severity": port.get("severity", "INFO"),
-                    "cve_count": port.get("cve_count", 0),
-                }
-        
-        return ports
-    
-    def compare(self) -> Dict:
-        """Compare les deux scans et retourne l'évolution complète"""
-        
-        vulns1_ids = set(self.vulns1.keys())
-        vulns2_ids = set(self.vulns2.keys())
-        
-        # Catégories principales
-        fixed = vulns1_ids - vulns2_ids
-        new = vulns2_ids - vulns1_ids
-        persistent = vulns1_ids & vulns2_ids
-        
-        # Analyse des sévérités
-        fixed_by_severity = self._count_by_severity({k: self.vulns1[k] for k in fixed})
-        new_by_severity = self._count_by_severity({k: self.vulns2[k] for k in new})
-        persistent_by_severity = self._count_by_severity({k: self.vulns2[k] for k in persistent})
-        
-        # Régressions (sévérité augmentée)
-        regressions = self._detect_regressions(persistent)
-        
-        # Améliorations (sévérité diminuée)
-        improvements = self._detect_improvements(persistent)
-        
-        # Calcul des scores
-        score1 = self._calculate_security_score(self.vulns1)
-        score2 = self._calculate_security_score(self.vulns2)
-        score_change = score2 - score1
-        
-        # Analyse des ports
-        ports_added, ports_removed = self._compare_ports()
-        
-        # Trend analysis
-        trend = self._generate_trend_analysis(len(fixed), len(new), len(persistent), score_change)
-        
-        # Recommandations
-        recommendations = self._generate_recommendations(
-            len(fixed), len(new), len(persistent), regressions, score_change
-        )
-        
-        return {
-            "summary": {
-                "fixed": len(fixed),
-                "new": len(new),
-                "persistent": len(persistent),
-                "total_before": len(vulns1_ids),
-                "total_after": len(vulns2_ids),
-                "score_before": score1,
-                "score_after": score2,
-                "score_change": score_change,
-                "improvement_percent": round((score_change / max(score1, 1)) * 100, 1),
-                "comparison_date": datetime.utcnow().isoformat(),
-                "days_between": self._days_between(),
-            },
-            "by_severity": {
-                "fixed": fixed_by_severity,
-                "new": new_by_severity,
-                "persistent": persistent_by_severity
-            },
-            "ports": {
-                "added": ports_added,
-                "removed": ports_removed,
-                "added_count": len(ports_added),
-                "removed_count": len(ports_removed),
-            },
-            "details": {
-                "fixed_vulnerabilities": [
-                    {
-                        "id": vuln_id,
-                        "title": self.vulns1[vuln_id]["title"],
-                        "severity": self.vulns1[vuln_id]["severity"],
-                        "category": self.vulns1[vuln_id].get("category", ""),
-                        "remediation": self.vulns1[vuln_id].get("remediation", ""),
-                    }
-                    for vuln_id in sorted(fixed)
-                ][:100],
-                "new_vulnerabilities": [
-                    {
-                        "id": vuln_id,
-                        "title": self.vulns2[vuln_id]["title"],
-                        "severity": self.vulns2[vuln_id]["severity"],
-                        "category": self.vulns2[vuln_id].get("category", ""),
-                        "remediation": self.vulns2[vuln_id].get("remediation", ""),
-                    }
-                    for vuln_id in sorted(new)
-                ][:100],
-                "persistent_vulnerabilities": [
-                    {
-                        "id": vuln_id,
-                        "title": self.vulns2[vuln_id]["title"],
-                        "severity": self.vulns2[vuln_id]["severity"],
-                        "category": self.vulns2[vuln_id].get("category", ""),
-                    }
-                    for vuln_id in sorted(persistent)
-                ][:100],
-                "regressions": regressions,
-                "improvements": improvements,
-            },
-            "trend": trend,
-            "recommendations": recommendations,
-        }
-    
-    def _count_by_severity(self, vulns: Dict) -> Dict[str, int]:
-        """Compte les vulnérabilités par sévérité"""
-        counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
-        for vuln in vulns.values():
-            severity = vuln.get("severity", "INFO").upper()
-            if severity in counts:
-                counts[severity] += 1
-        return counts
-    
-    def _calculate_security_score(self, vulns: Dict) -> int:
-        """Calcule un score de sécurité de 0 à 100 (100 = parfait)"""
-        if not vulns:
-            return 100
-        
-        total_penalty = 0
-        for vuln in vulns.values():
-            severity = vuln.get("severity", "INFO").upper()
-            penalty = self.SEVERITY_POINTS.get(severity, 1)
-            total_penalty += penalty
-        
-        # Formule: 100 - (penalty / (max_penalty * sqrt(n)))
-        max_possible = len(vulns) * 25
-        if max_possible == 0:
-            return 100
-        
-        raw_score = 100 - (total_penalty / max_possible * 100)
-        return max(0, min(100, int(raw_score)))
-    
-    def _detect_regressions(self, persistent: set) -> List[Dict]:
-        """Détecte les vulnérabilités dont la sévérité a augmenté"""
-        regressions = []
-        for vuln_id in persistent:
-            sev1 = self.vulns1[vuln_id].get("severity", "INFO").upper()
-            sev2 = self.vulns2[vuln_id].get("severity", "INFO").upper()
-            
-            if self.SEVERITY_ORDER[sev2] < self.SEVERITY_ORDER[sev1]:  # Pire
-                regressions.append({
-                    "id": vuln_id,
-                    "title": self.vulns2[vuln_id]["title"],
-                    "severity_before": sev1,
-                    "severity_after": sev2,
-                    "warning": f"Séverité augmentée de {sev1} à {sev2}",
-                })
-        return regressions
-    
-    def _detect_improvements(self, persistent: set) -> List[Dict]:
-        """Détecte les vulnérabilités dont la sévérité a diminué"""
-        improvements = []
-        for vuln_id in persistent:
-            sev1 = self.vulns1[vuln_id].get("severity", "INFO").upper()
-            sev2 = self.vulns2[vuln_id].get("severity", "INFO").upper()
-            
-            if self.SEVERITY_ORDER[sev2] > self.SEVERITY_ORDER[sev1]:  # Mieux
-                improvements.append({
-                    "id": vuln_id,
-                    "title": self.vulns2[vuln_id]["title"],
-                    "severity_before": sev1,
-                    "severity_after": sev2,
-                    "message": f"Séverité diminuée de {sev1} à {sev2}",
-                })
-        return improvements
-    
-    def _compare_ports(self) -> Tuple[List[Dict], List[Dict]]:
-        """Compare les ports ouverts entre les deux scans"""
-        ports1_ids = set(self.ports1.keys())
-        ports2_ids = set(self.ports2.keys())
-        
-        added = [self.ports2[p] for p in (ports2_ids - ports1_ids)]
-        removed = [self.ports1[p] for p in (ports1_ids - ports2_ids)]
-        
-        return added, removed
-    
-    def _days_between(self) -> int:
-        """Calcule le nombre de jours entre les deux scans"""
-        try:
-            date1_str = self.scan1_meta.get("created_at", "")
-            date2_str = self.scan2_meta.get("created_at", "")
-            
-            if date1_str and date2_str:
-                date1 = datetime.fromisoformat(date1_str[:19])
-                date2 = datetime.fromisoformat(date2_str[:19])
-                return abs((date2 - date1).days)
-        except:
-            pass
-        return 0
-    
-    def _generate_trend_analysis(self, fixed: int, new: int, persistent: int, score_change: int) -> Dict:
-        """Génère une analyse de tendance"""
-        if fixed > new:
-            if score_change > 10:
-                trend = "IMPROVING_RAPID"
-                message = f"🚀 Excellente progression ! {fixed} vulnérabilités corrigées, {new} nouvelles."
-                icon = "📈🚀"
-            else:
-                trend = "IMPROVING"
-                message = f"✅ Sécurité en amélioration. {fixed} fixes vs {new} nouvelles vulns."
-                icon = "📈"
-        elif new > fixed:
-            if new - fixed > 10:
-                trend = "DEGRADING_RAPID"
-                message = f"⚠️ Alerte ! {new} nouvelles vulnérabilités détectées, seulement {fixed} corrigées."
-                icon = "📉⚠️"
-            else:
-                trend = "DEGRADING"
-                message = f"⚠️ Sécurité en dégradation. {new} nouvelles vulns apparues."
-                icon = "📉"
-        else:
-            if persistent > 0:
-                trend = "STAGNANT"
-                message = f"➡️ Situation stable mais {persistent} vulns persistentes non corrigées."
-                icon = "➡️"
-            else:
-                trend = "CLEAN"
-                message = "✨ Plus aucune vulnérabilité détectée ! Parfait !"
-                icon = "🏆"
-        
-        return {
-            "trend": trend,
-            "message": message,
-            "icon": icon,
-            "trend_color": self._get_trend_color(trend),
-        }
-    
-    def _get_trend_color(self, trend: str) -> str:
-        colors = {
-            "IMPROVING_RAPID": "#10b981",
-            "IMPROVING": "#22c55e",
-            "STAGNANT": "#f59e0b",
-            "DEGRADING": "#ef4444",
-            "DEGRADING_RAPID": "#dc2626",
-            "CLEAN": "#06b6d4",
-        }
-        return colors.get(trend, "#6b7280")
-    
-    def _generate_recommendations(self, fixed: int, new: int, persistent: int, 
-                                   regressions: list, score_change: int) -> List[str]:
-        """Génère des recommandations basées sur la comparaison"""
-        recs = []
-        
-        if persistent > 0:
-            recs.append(f"🔴 {persistent} vulnérabilités persistent : priorisez leur correction")
-        
-        if regressions:
-            recs.append(f"⚠️ {len(regressions)} vulnérabilités ont empiré : investiguez immédiatement")
-        
-        if new > 0:
-            recs.append(f"🆕 {new} nouvelles vulnérabilités : analysez leur impact")
-        
-        if score_change < 0:
-            recs.append("📉 Le score de sécurité a baissé : revoyez les changements récents")
-        elif score_change > 20:
-            recs.append("🏆 Excellente amélioration ! Continuez sur cette lancée")
-        
-        if fixed == 0 and new == 0 and persistent > 0:
-            recs.append("➡️ Aucune évolution : planifiez correctives pour les vulns persistantes")
-        
-        return recs[:5]
+SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4, "UNKNOWN": 5}
+SEVERITY_POINTS = {"CRITICAL": 25, "HIGH": 16, "MEDIUM": 8, "LOW": 3, "INFO": 1}
 
 
-def format_comparison_for_display(comparison: Dict) -> Dict:
-    """Formate la comparaison pour l'affichage dans le template"""
-    summary = comparison["summary"]
-    trend = comparison["trend"]
-    
+def _extract_vulns(payload):
+    vulns = {}
+    for item in (payload.get("scanned_items") or payload.get("findings") or []):
+        title = item.get("title") or item.get("name") or ""
+        sev = (item.get("severity") or "INFO").upper()
+        if not title or sev == "INFO":
+            continue
+        key = title.lower().strip()
+        cve_id = None
+        cvss_score = None
+        for cve in (item.get("cves") or []):
+            c_id = cve.get("id") or cve.get("cve") or ""
+            if c_id.lower().startswith("cve-"):
+                cve_id = c_id
+                cvss_score = cve.get("score") or cve.get("cvss_score")
+                break
+        vulns[key] = {
+            "title": title,
+            "severity": sev,
+            "category": item.get("category", "Finding"),
+            "description": item.get("description") or item.get("detail", ""),
+            "recommendation": item.get("recommendation", ""),
+            "port": None,
+            "cve_id": cve_id,
+            "cvss_score": cvss_score,
+            "evidence": item.get("evidence", ""),
+        }
+        if item.get("metadata") and isinstance(item.get("metadata"), dict):
+            vulns[key]["port"] = item["metadata"].get("port")
+    for port in (payload.get("open_ports") or []):
+        for cve in (port.get("cves") or []):
+            cid = cve.get("id") or cve.get("cve") or ""
+            sev = (cve.get("severity") or "INFO").upper()
+            if not cid or sev == "INFO":
+                continue
+            key = cid.lower().strip()
+            vulns[key] = {
+                "title": cid,
+                "severity": sev,
+                "category": "CVE",
+                "description": cve.get("description", ""),
+                "recommendation": port.get("recommendation", ""),
+                "port": port.get("port"),
+                "cve_id": cid,
+                "cvss_score": cve.get("score") or cve.get("cvss_score"),
+                "evidence": f"Port {port.get('port')} - {port.get('service', '?')}",
+            }
+    for cve in (payload.get("vulnerabilities") or []):
+        cid = cve.get("id") or cve.get("cve") or ""
+        sev = (cve.get("severity") or "INFO").upper()
+        if not cid or sev == "INFO":
+            continue
+        key = cid.lower().strip()
+        cvss_score = cve.get("score") or cve.get("cvss_score")
+        vulns[key] = {
+                "title": cid,
+                "severity": sev,
+                "category": "CVE",
+                "description": cve.get("description", ""),
+                "recommendation": cve.get("recommendation", ""),
+                "port": cve.get("port"),
+                "cve_id": cid,
+                "cvss_score": cvss_score,
+                "evidence": f"Asset: {cve.get('asset', '?')}",
+            }
+    return vulns
+
+
+def _extract_ports(payload):
+    ports = {}
+    for p in (payload.get("open_ports") or payload.get("ports") or []):
+        n = p.get("port")
+        if n:
+            ports[n] = {"port": n, "service": p.get("service", "unknown"), "product": p.get("product", ""), "version": p.get("version", ""), "cve_count": p.get("cve_count", 0)}
+    return ports
+
+
+def _severity_counts(vulns_dict):
+    c = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+    for v in vulns_dict.values():
+        s = v.get("severity", "INFO").upper()
+        if s in c:
+            c[s] += 1
+    return c
+
+
+def _score_with_breakdown(vulns):
+    """Security Score: 0 = clean (best), 100 = max risk (worst)."""
+    if not vulns:
+        return 0, {"n": 0, "penalty": 0, "max_penalty": 0, "crit": 0, "high": 0, "med": 0, "low": 0, "info": 0}
+    crit = sum(1 for v in vulns.values() if v.get("severity", "").upper() == "CRITICAL")
+    high = sum(1 for v in vulns.values() if v.get("severity", "").upper() == "HIGH")
+    med = sum(1 for v in vulns.values() if v.get("severity", "").upper() == "MEDIUM")
+    low = sum(1 for v in vulns.values() if v.get("severity", "").upper() == "LOW")
+    info = sum(1 for v in vulns.values() if v.get("severity", "").upper() == "INFO")
+    penalty = crit * 25 + high * 16 + med * 8 + low * 3 + info * 1
+    max_penalty = len(vulns) * 25
+    raw = (penalty / max_penalty * 100) if max_penalty else 0
+    score = max(0, min(100, int(raw)))
+    return score, {"n": len(vulns), "penalty": penalty, "max_penalty": max_penalty, "crit": crit, "high": high, "med": med, "low": low, "info": info}
+
+
+def _compare_scan_pair(old_scan, new_scan):
+    """Compare older scan_a → newer scan_b. Returns old→new deltas."""
+    old_payload, old_err = _load(old_scan)
+    new_payload, new_err = _load(new_scan)
+    if old_err or new_err or not old_payload or not new_payload:
+        return None
+
+    if old_payload.get("type") == "network" or new_payload.get("type") == "network":
+        return None
+
+    vulns_old = _extract_vulns(old_payload)
+    vulns_new = _extract_vulns(new_payload)
+    ports_old = _extract_ports(old_payload)
+    ports_new = _extract_ports(new_payload)
+
+    keys_old, keys_new = set(vulns_old), set(vulns_new)
+    fixed_keys = keys_old - keys_new        # present in old, gone in new
+    new_keys = keys_new - keys_old           # appeared in new
+    persistent_keys = keys_old & keys_new    # in both
+
+    def _build_vuln_list(keys, source):
+        return [dict(source[k]) for k in sorted(keys)]
+
+    fixed_details = _build_vuln_list(fixed_keys, vulns_old)
+    new_details = _build_vuln_list(new_keys, vulns_new)
+    persistent_details = _build_vuln_list(persistent_keys, vulns_new)
+
+    for v in persistent_details:
+        key = v.get("title", "").lower().strip()
+        if key in vulns_old:
+            v["severity_before"] = vulns_old[key].get("severity", "INFO")
+            v["severity_after"] = v.get("severity", "INFO")
+            v["cvss_before"] = vulns_old[key].get("cvss_score")
+            v["cvss_after"] = v.get("cvss_score")
+
+    regressions = []
+    improvements = []
+    for k in persistent_keys:
+        sa = SEVERITY_ORDER.get(vulns_old[k].get("severity", "INFO").upper(), 5)
+        sb = SEVERITY_ORDER.get(vulns_new[k].get("severity", "INFO").upper(), 5)
+        if sb < sa:
+            regressions.append({"title": vulns_new[k]["title"], "before": vulns_old[k].get("severity"), "after": vulns_new[k].get("severity"), "cve_id": vulns_new[k].get("cve_id"), "cvss_before": vulns_old[k].get("cvss_score"), "cvss_after": vulns_new[k].get("cvss_score")})
+        elif sb > sa:
+            improvements.append({"title": vulns_new[k]["title"], "before": vulns_old[k].get("severity"), "after": vulns_new[k].get("severity"), "cve_id": vulns_new[k].get("cve_id"), "cvss_before": vulns_old[k].get("cvss_score"), "cvss_after": vulns_new[k].get("cvss_score")})
+
+    score_old = old_payload.get("risk_score", 50)
+    score_new = new_payload.get("risk_score", 50)
+    _, brk_old = _score_with_breakdown(vulns_old)
+    _, brk_new = _score_with_breakdown(vulns_new)
+    score_delta = score_new - score_old
+    pct_fixed = round(len(fixed_keys) / max(len(keys_old), 1) * 100, 1)
+
+    ports_old_set = set(ports_old)
+    ports_new_set = set(ports_new)
+    ports_added = [ports_new[p] for p in (ports_new_set - ports_old_set)]
+    ports_removed = [ports_old[p] for p in (ports_old_set - ports_new_set)]
+
+    trend, trend_msg, trend_icon = _trend(pct_fixed, len(new_keys), score_delta)
+
+    ai_summary = _generate_ai_summary(len(fixed_keys), len(new_keys), len(persistent_keys), score_delta, pct_fixed, len(regressions), len(improvements), len(ports_added), len(ports_removed))
+
     return {
-        "summary": {
-            "fixed": summary["fixed"],
-            "new": summary["new"],
-            "persistent": summary["persistent"],
-            "fixed_percent": round(summary["fixed"] / max(summary["total_before"], 1) * 100, 1),
-            "score_before": summary["score_before"],
-            "score_after": summary["score_after"],
-            "score_change": summary["score_change"],
-            "improvement_percent": summary["improvement_percent"],
-        },
-        "trend": trend,
-        "by_severity": comparison["by_severity"],
-        "top_fixed": comparison["details"]["fixed_vulnerabilities"][:5],
-        "top_new": comparison["details"]["new_vulnerabilities"][:5],
-        "recommendations": comparison["recommendations"],
+        "scan_a_id": old_scan["id"], "scan_b_id": new_scan["id"],
+        "scan_a_date": (old_scan.get("created_at") or "")[:16],
+        "scan_b_date": (new_scan.get("created_at") or "")[:16],
+        "asset_name": old_scan.get("machine_name") or old_scan.get("target", ""),
+        "fixed": len(fixed_keys), "new": len(new_keys), "persistent": len(persistent_keys),
+        "total_before": len(keys_old), "total_after": len(keys_new),
+        "score_before": score_old, "score_after": score_new,
+        "pct_fixed": pct_fixed,
+        "fixed_by_severity": _severity_counts({k: vulns_old[k] for k in fixed_keys}),
+        "new_by_severity": _severity_counts({k: vulns_new[k] for k in new_keys}),
+        "persistent_by_severity": _severity_counts({k: vulns_new[k] for k in persistent_keys}),
+        "regressions": regressions, "improvements": improvements,
+        "ports_added": len(ports_added), "ports_removed": len(ports_removed),
+        "ports_added_list": ports_added[:10], "ports_removed_list": ports_removed[:10],
+        "trend": trend, "trend_message": trend_msg, "trend_icon": trend_icon,
+        "fixed_details": fixed_details[:50],
+        "new_details": new_details[:50],
+        "persistent_details": persistent_details[:50],
+        "score_breakdown_before": brk_old,
+        "score_breakdown_after": brk_new,
+        "ai_summary": ai_summary,
     }
+
+
+def _load(scan):
+    try:
+        raw = scan.get("result_json")
+        if not raw:
+            return None, "no result"
+        return json.loads(raw), None
+    except Exception as e:
+        return None, str(e)
+
+
+def _trend(pct_fixed, new_count, score_delta):
+    """score_delta = new - old. Negative delta = score decreased = improvement."""
+    if pct_fixed >= 80 and score_delta <= 0:
+        return "IMPROVING_RAPID", "Security posture improving rapidly", "🚀"
+    if pct_fixed >= 50 and score_delta <= 0:
+        return "IMPROVING", "Security posture is improving", "📈"
+    if new_count > 0 and score_delta >= 0:
+        return "DEGRADING", "Security posture is degrading", "📉"
+    if pct_fixed > 0 and new_count == 0:
+        return "STABLE_IMPROVING", "Steady improvement with no regressions", "✅"
+    return "STABLE", "Security posture is stable", "➡️"
+
+
+def _generate_ai_summary(fixed, new, persistent, score_delta, pct_fixed, regs, imps, ports_added, ports_removed):
+    """score_delta = new - old. Negative = improved (score went down)."""
+    parts = []
+    if fixed > 0:
+        parts.append(f"**{fixed}** vulnerability(ies) were fixed ({pct_fixed}% fix rate)")
+    if new > 0:
+        parts.append(f"**{new}** new vulnerability(ies) appeared since last scan")
+    if persistent > 0:
+        parts.append(f"**{persistent}** vulnerability(ies) remain unresolved")
+    if regs > 0:
+        parts.append(f"**{regs}** finding(s) increased in severity — investigate immediately")
+    if imps > 0:
+        parts.append(f"**{imps}** finding(s) decreased in severity")
+    if ports_added > 0:
+        parts.append(f"**{ports_added}** new port(s) exposed — review firewall rules")
+    if ports_removed > 0:
+        parts.append(f"**{ports_removed}** port(s) were closed — good")
+    if score_delta < 0:
+        parts.append(f"Security score **improved by {score_delta}** points (lower = better)")
+    elif score_delta > 0:
+        parts.append(f"Security score **worsened by +{score_delta}** points — review changes")
+    else:
+        parts.append("Security score remained unchanged")
+    return ". ".join(parts)
+
+
+def build_comparisons_for_user(light_scans, fetch_fn=None):
+    if not light_scans:
+        return []
+
+    groups = defaultdict(list)
+    for s in light_scans:
+        if s.get("status") != "done" or s.get("scan_type") not in ("security",):
+            continue
+        mn = (s.get("machine_name") or "").strip().lower()
+        tg = (s.get("target") or "").strip().lower().rstrip("/")
+        if not mn or not tg:
+            continue
+        key = mn + "||" + tg
+        groups[key].append(s)
+
+    results = []
+    for key, group in groups.items():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda x: x.get("created_at") or "")
+        oldest, newest = group[0], group[-1]
+        if fetch_fn:
+            oldest = fetch_fn(oldest["id"]) or oldest
+            newest = fetch_fn(newest["id"]) or newest
+        comp = _compare_scan_pair(oldest, newest)
+        if comp:
+            comp["comparisons"] = []
+            for i in range(len(group) - 1):
+                older = group[i]
+                newer = group[i + 1]
+                if fetch_fn:
+                    older = fetch_fn(older["id"]) or older
+                    newer = fetch_fn(newer["id"]) or newer
+                pair = _compare_scan_pair(older, newer)
+                if pair:
+                    comp["comparisons"].append(pair)
+            results.append(comp)
+
+    results.sort(key=lambda x: abs(x.get("score_before", 0) - x.get("score_after", 0)), reverse=True)
+    return results

@@ -36,12 +36,18 @@ EPSS_BASE_URL = "https://api.first.org/data/v1/epss"
 
 # Rate limits (NVD): 50 req/30s with key, 5 req/30s without
 RATE_WINDOW        = 30       # seconds
-RATE_LIMIT_KEY     = 45       # requests per window with API key
+RATE_LIMIT_KEY     = 48       # requests per window with API key
 RATE_LIMIT_NO_KEY  = 4        # requests per window without key
 
 # Cache TTL
 CACHE_TTL_HOURS    = 24 * 7   # 7 days for CVE data
 CACHE_DB_PATH      = os.path.join(os.path.dirname(__file__), "..", "cve_cache.db")
+
+# Log API key status on import
+if NVD_API_KEY:
+    logger.info("NVD API key detected — using authenticated rate limits (%d req/%ds)", RATE_LIMIT_KEY, RATE_WINDOW)
+else:
+    logger.warning("No NVD API key found — using unauthenticated rate limits (%d req/%ds). Add NVD_API_KEY to .env for better performance.", RATE_LIMIT_NO_KEY, RATE_WINDOW)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -188,18 +194,21 @@ class NVDClient:
                 resp = requests.get(NVD_BASE_URL, params=params,
                                     headers=headers, timeout=30)
                 if resp.status_code == 200:
+                    if attempt > 0:
+                        logger.debug("NVD request succeeded after retry")
                     return resp.json()
                 if resp.status_code == 403:
-                    logger.error("NVD API key invalid or rate-limited (403)")
+                    logger.error("NVD API key invalid or rate-limited (403) — check NVD_API_KEY in .env")
                     return None
                 if resp.status_code == 429:
                     wait = 30 * (attempt + 1)
-                    logger.warning("NVD 429 — waiting %ds", wait)
+                    logger.warning("NVD 429 rate limit hit — waiting %ds (attempt %d/%d)", wait, attempt + 1, retries + 1)
                     time.sleep(wait)
                     continue
-                logger.warning("NVD HTTP %s", resp.status_code)
+                logger.warning("NVD HTTP %s for params: %s", resp.status_code, params)
                 return None
             except requests.Timeout:
+                logger.debug("NVD timeout — retrying (%d/%d)", attempt + 1, retries + 1)
                 if attempt < retries:
                     time.sleep(5)
             except Exception as e:
@@ -280,6 +289,8 @@ class NVDClient:
             "epss_score":          None,
             "epss_percentile":     None,
             "source":              "NVD",
+            "data_source":         "NVD API v2.0",
+            "confidence":          "medium",
         }
 
     def _extract_cvss(self, metrics: Dict) -> Dict:
@@ -392,9 +403,36 @@ class NVDClient:
 
     def search_by_product(self, product: str, version: str = None,
                           limit: int = 15) -> List[Dict]:
-        """Search CVEs for a specific product and optional version."""
+        """Search CVEs for a specific product and optional version.
+        
+        When a version is provided, filters results to CVEs affecting that version.
+        Returns CVEs with confidence scoring.
+        """
         query = f"{product} {version}".strip() if version else product
-        return self.search(keyword=query, limit=limit)
+        results = self.search(keyword=query, limit=limit * 2)
+
+        # Version-aware filtering
+        if version and results:
+            ver_lower = version.lower()
+            filtered = []
+            for cve in results:
+                desc = (cve.get("description") or "").lower()
+                # Prioritize CVEs mentioning the exact version
+                if ver_lower in desc:
+                    cve["confidence"] = "high"
+                    cve["data_source"] = "NVD API"
+                    filtered.append(cve)
+                elif len(filtered) < limit:
+                    cve["confidence"] = "medium"
+                    cve["data_source"] = "NVD API"
+                    filtered.append(cve)
+            results = filtered[:limit]
+        else:
+            for cve in results:
+                cve["confidence"] = "medium"
+                cve["data_source"] = "NVD API"
+
+        return results
 
     def get_recent_critical(self, days: int = 30, limit: int = 20) -> List[Dict]:
         """Fetch recently published CRITICAL CVEs."""

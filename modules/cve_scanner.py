@@ -1,18 +1,5 @@
-"""
-CVE Scanner - Hybride: API NVD d'abord, puis base locale
-"""
+from modules.nvd_client import nvd_client, epss_client
 
-import requests
-import os
-from dotenv import load_dotenv
-
-# Charge .env
-load_dotenv()
-
-# Ta clé API depuis .env
-NVD_API_KEY = os.environ.get("NVD_API_KEY")
-
-# Base locale de secours
 LOCAL_CVE_DB = {
     "nginx": [
         {"id": "CVE-2021-23017", "severity": "HIGH", "cvss_score": 7.5,
@@ -39,104 +26,80 @@ LOCAL_CVE_DB = {
 }
 
 
+def _normalize(cve):
+    cve["cve"] = cve.get("id", "")
+    cve["score"] = cve.get("cvss_score")
+    return cve
+
+
 def search_cves(product: str, version: str = "") -> list:
-    # Force API d'abord
-    cves = search_cves_api(product, version)
-    if cves:
-        return cves
+    if not product:
+        return []
+
+    try:
+        results = nvd_client.search_by_product(product, version or None, limit=10)
+        if results:
+            cve_ids = [c["id"] for c in results if c.get("id")]
+            if cve_ids:
+                epss_map = epss_client.get_scores(cve_ids)
+                for cve in results:
+                    epid = (cve.get("id") or "").upper()
+                    if epid in epss_map:
+                        cve["epss_score"] = epss_map[epid]["epss_score"]
+                        cve["epss_percentile"] = epss_map[epid]["epss_percentile"]
+                    cve["source"] = "NVD"
+                    _normalize(cve)
+            return results
+    except Exception:
+        pass
+
     return search_cves_local(product, version)
 
 
-def search_cves_api(product: str, version: str = "") -> list:
-    """Search CVEs using REAL NVD API with your API key from .env"""
-    query = f"{product} {version}".strip()
-    url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-    
-    headers = {"apiKey": NVD_API_KEY}
-    params = {
-        "keywordSearch": query,
-        "resultsPerPage": 10,
-    }
-    
-    response = requests.get(url, headers=headers, params=params, timeout=15)
-    
-    if response.status_code != 200:
-        return []
-    
-    data = response.json()
-    results = []
-    
-    for item in data.get("vulnerabilities", []):
-        cve_data = item.get("cve", {})
-        cve_id = cve_data.get("id", "")
-        
-        # Get description
-        description = ""
-        for desc in cve_data.get("descriptions", []):
-            if desc.get("lang") == "en":
-                description = desc.get("value", "")[:200]
-                break
-        
-        # Get CVSS score
-        metrics = cve_data.get("metrics", {})
-        cvss_score = None
-        severity = "UNKNOWN"
-        
-        for metric_key in ["cvssMetricV31", "cvssMetricV30"]:
-            metric_list = metrics.get(metric_key, [])
-            if metric_list:
-                cvss_data = metric_list[0].get("cvssData", {})
-                cvss_score = cvss_data.get("baseScore")
-                severity = metric_list[0].get("baseSeverity", "UNKNOWN")
-                if cvss_score:
-                    break
-        
-        if cvss_score is None:
-            cvss_v2 = metrics.get("cvssMetricV2", [])
-            if cvss_v2:
-                cvss_score = cvss_v2[0].get("cvssData", {}).get("baseScore")
-        
-        if severity == "UNKNOWN" and cvss_score:
-            if cvss_score >= 9.0: severity = "CRITICAL"
-            elif cvss_score >= 7.0: severity = "HIGH"
-            elif cvss_score >= 4.0: severity = "MEDIUM"
-            elif cvss_score > 0: severity = "LOW"
-        
-        results.append({
-            "id": cve_id,
-            "description": description,
-            "severity": severity,
-            "cvss_score": cvss_score,
-            "source": "NVD API"
-        })
-    
-    return results[:10]
-
-
 def search_cves_local(product: str, version: str = "") -> list:
-    """Fallback: search in local database"""
     product_lower = product.lower()
-    
     for key, cves in LOCAL_CVE_DB.items():
         if key in product_lower or product_lower in key:
-            result = []
-            for cve in cves:
-                result.append({
+            return [
+                {
                     "id": cve["id"],
+                    "cve": cve["id"],
                     "description": cve["description"],
                     "severity": cve["severity"],
                     "cvss_score": cve.get("cvss_score"),
-                    "source": "Local DB"
-                })
-            return result
-    
+                    "score": cve.get("cvss_score"),
+                    "source": "Local DB",
+                }
+                for cve in cves
+            ]
     return []
 
 
+def _matches_product(text, product, query):
+    return product in text or query in text
+
+
+def get_severity(score, severity):
+    if severity:
+        return severity.upper()
+    if score is not None:
+        if score >= 9.0: return "CRITICAL"
+        if score >= 7.0: return "HIGH"
+        if score >= 4.0: return "MEDIUM"
+        if score > 0: return "LOW"
+    return "UNKNOWN"
+
+
 if __name__ == "__main__":
-    print("Testing CVE search...")
-    print(f"NVD_API_KEY from .env: {'✅ Loaded' if NVD_API_KEY else '❌ Not found'}")
-    
+    print("Testing CVE search via nvd_client...")
     cves = search_cves("nginx")
     for cve in cves:
-        print(f"{cve['id']} - {cve['severity']} ({cve['source']})")
+        print(f"  {cve['id']} - {cve['severity']} ({cve.get('source', '?')})")
+        if cve.get("cwes"):
+            print(f"    CWE: {', '.join(cve['cwes'])}")
+        if cve.get("epss_score") is not None:
+            print(f"    EPSS: {cve['epss_score']}")
+        if cve.get("is_kev"):
+            print(f"    CISA KEV: YES")
+        if cve.get("references"):
+            print(f"    References: {len(cve['references'])} URLs")

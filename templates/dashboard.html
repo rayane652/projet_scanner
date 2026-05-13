@@ -243,6 +243,105 @@
         <canvas id="trendChart" height="80"></canvas>
     </div>
 
+    <!-- ══ SECURITY EVOLUTION ══ -->
+    {% set comps = dashboard_data.scan_comparisons or [] %}
+    {% if comps %}
+    <div class="panel">
+        <div class="panel-head">
+            <h2><i class="fas fa-chart-line"></i> Security Evolution</h2>
+            <span>{{ comps|length }} asset(s) tracked</span>
+        </div>
+
+        {% for comp in comps %}
+        <div class="evolution-card">
+            <div class="evo-header">
+                <div class="evo-asset">
+                    <i class="fas fa-desktop" style="color:#7c3aed;"></i>
+                    <strong>{{ comp.asset_name }}</strong>
+                </div>
+                <div class="evo-dates">
+                    <span>{{ comp.scan_a_date }}</span>
+                    <i class="fas fa-arrow-right"></i>
+                    <span>{{ comp.scan_b_date }}</span>
+                </div>
+                <div class="evo-trend-badge trend-{{ comp.trend|lower }}">
+                    {{ comp.trend_icon }} {{ comp.trend_message }}
+                </div>
+            </div>
+
+            <div class="evo-stats-grid" data-comp-idx="{{ loop.index0 }}">
+                <div class="evo-stat good clickable-stat" data-drill="fixed" title="Click to see fixed vulnerabilities">
+                    <span class="evo-stat-val">{{ comp.fixed }}</span>
+                    <span class="evo-stat-lbl">Fixed</span>
+                </div>
+                <div class="evo-stat bad clickable-stat" data-drill="new" title="Click to see new vulnerabilities">
+                    <span class="evo-stat-val">{{ comp.new }}</span>
+                    <span class="evo-stat-lbl">New</span>
+                </div>
+                <div class="evo-stat neutral clickable-stat" data-drill="persistent" title="Click to see unresolved vulnerabilities">
+                    <span class="evo-stat-val">{{ comp.persistent }}</span>
+                    <span class="evo-stat-lbl">Persistent</span>
+                </div>
+                <div class="evo-stat clickable-stat" data-drill="score" title="Click for score breakdown">
+                    {% set score_worsened = comp.score_after > comp.score_before %}
+                    <span class="evo-stat-val {% if not score_worsened %}good{% else %}bad{% endif %}">{{ comp.score_before }} → {{ comp.score_after }}</span>
+                    <span class="evo-stat-lbl">Security Score</span>
+                </div>
+                <div class="evo-stat clickable-stat" data-drill="fixed_rate" title="Click for fix rate details">
+                    <span class="evo-stat-val good">{{ comp.pct_fixed }}%</span>
+                    <span class="evo-stat-lbl">Fixed Rate</span>
+                </div>
+            </div>
+
+            {% if comp.ports_added > 0 or comp.ports_removed > 0 %}
+            <div class="evo-ports">
+                <span><i class="fas fa-plus-circle" style="color:#ef4444;"></i> {{ comp.ports_added }} port(s) added</span>
+                <span><i class="fas fa-minus-circle" style="color:#10b981;"></i> {{ comp.ports_removed }} port(s) closed</span>
+            </div>
+            {% endif %}
+
+            {% if comp.regressions %}
+            <div class="evo-regressions">
+                <strong><i class="fas fa-exclamation-triangle" style="color:#ef4444;"></i> Severity regressions:</strong>
+                {% for r in comp.regressions[:3] %}
+                <span class="evo-reg-item">{{ r.title }}: {{ r.before }} → {{ r.after }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if comp.improvements %}
+            <div class="evo-improvements">
+                <strong><i class="fas fa-check-circle" style="color:#10b981;"></i> Severity improvements:</strong>
+                {% for r in comp.improvements[:3] %}
+                <span class="evo-imp-item">{{ r.title }}: {{ r.before }} → {{ r.after }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="evo-sev-bars">
+                {% for sev in ["CRITICAL","HIGH","MEDIUM","LOW"] %}
+                {% set fixed_n = comp.fixed_by_severity.get(sev, 0) %}
+                {% set new_n = comp.new_by_severity.get(sev, 0) %}
+                {% set total = fixed_n + new_n %}
+                {% if total > 0 %}
+                <div class="evo-sev-row clickable-sev" data-comp-idx="{{ loop.index0 }}" data-sev="{{ sev }}" data-type="fixed" title="Click to see fixed {{ sev }} vulnerabilities">
+                    <span class="evo-sev-label {{ sev|lower }}">{{ sev }}</span>
+                    <div class="evo-sev-bar-track">
+                        {% set pct_f = (fixed_n / total * 100)|int %}
+                        {% set pct_n = (new_n / total * 100)|int %}
+                        {% if fixed_n > 0 %}<div class="evo-sev-bar evo-sev-fixed" style="width:{{ pct_f }}%">{{ fixed_n }}</div>{% endif %}
+                        {% if new_n > 0 %}<div class="evo-sev-bar evo-sev-new" style="width:{{ pct_n }}%">{{ new_n }}</div>{% endif %}
+                    </div>
+                    <span class="evo-sev-nums">-{{ fixed_n }} / +{{ new_n }}</span>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
     <!-- ══ ASSETS TABLE ══ -->
     <div class="panel">
         <div class="panel-head">
@@ -342,15 +441,13 @@ setTimeout(() => {
 new Chart(document.getElementById('typeChart'), {
     type: 'bar',
     data: {
-        labels: ['Security','Web','Port','CVE'],
+        labels: ['Security','Web'],
         datasets: [{
             data: [
                 TYPE_COUNTS.security || 0,
-                TYPE_COUNTS.web      || 0,
-                TYPE_COUNTS.port     || 0,
-                TYPE_COUNTS.cve      || 0
+                TYPE_COUNTS.web      || 0
             ],
-            backgroundColor: ['#7f30cb','#01dcba','#3b82f6','#ef4444'],
+            backgroundColor: ['#7f30cb','#01dcba'],
             borderRadius: 6,
             borderSkipped: false
         }]
@@ -417,9 +514,9 @@ new Chart(document.getElementById('trendChart'), {
 });
 
 const TYPE_COLORS = {
-    security: '#7f30cb', web: '#01dcba', port: '#3b82f6', cve: '#ef4444'
+    security: '#7f30cb', web: '#01dcba'
 };
-const PHASES_ORDER = ['Resolving', 'Port Scan', 'Web Check', 'CVE Match', 'Report'];
+const PHASES_ORDER = ['Resolving', 'Port Scan', 'Web Check', 'Report'];
 
 function fmtEta(sec) {
     if (!sec || sec <= 0) return 'Done';
@@ -525,6 +622,236 @@ async function updateLivePanel() {
 
 updateLivePanel();
 setInterval(updateLivePanel, 2500);
+
+// ── EVOLUTION DRILL-DOWN MODAL ─────────────────────────────
+const COMP_DATA = {{ dashboard_data.scan_comparisons | tojson }};
+
+const MODAL_HTML = `
+<div id="evoModalOverlay" onclick="closeEvoModal(event)">
+  <div id="evoModal" class="evo-modal">
+    <div class="evo-modal-header">
+      <div><span id="evoModalBadge" class="evo-drill-badge"></span><h3 id="evoModalTitle"></h3></div>
+      <button onclick="closeEvoModal()" class="evo-modal-close">&times;</button>
+    </div>
+    <div class="evo-modal-search"><i class="fas fa-search"></i><input type="text" id="evoSearch" placeholder="Filter..." oninput="filterEvoList()"></div>
+    <div id="evoModalBody" class="evo-modal-body"></div>
+  </div>
+</div>`;
+
+document.body.insertAdjacentHTML('beforeend', MODAL_HTML);
+
+function sevClass(s) {
+  const m = {CRITICAL:'critical',HIGH:'high',MEDIUM:'medium',LOW:'low',INFO:'info'};
+  return m[(s||'INFO').toUpperCase()]||'info';
+}
+
+function renderVulnRow(v, showChange) {
+  const sev = v.severity || v.severity_after || 'INFO';
+  const sevB = v.severity_before;
+  const cvss = v.cvss_score || v.cvss_after || '';
+  const cvssB = v.cvss_before;
+  const cve = v.cve_id || '';
+  return '<div class="evo-drill-item severity-'+sevClass(sev)+'">'
+    + '<div class="evo-drill-left">'
+    + '<span class="evo-drill-sev severity-soft-'+sevClass(sev)+'">'+(sevB && sevB !== sev ? sevB+'→'+sev : sev)+'</span>'
+    + '<div class="evo-drill-info">'
+    + '<strong>'+escHtml(v.title||'')+'</strong>'
+    + (cve ? '<code class="evo-drill-cve">'+cve+'</code>' : '')
+    + (v.description ? '<small>'+escHtml((v.description||'').slice(0,120))+'</small>' : '')
+    + (v.port ? '<span class="evo-drill-port"><i class="fas fa-plug"></i> Port '+v.port+'</span>' : '')
+    + '</div></div>'
+    + '<div class="evo-drill-right">'
+    + (cvss ? '<span class="evo-drill-cvss">CVSS '+(cvssB && cvssB !== cvss ? cvssB+'→'+cvss : cvss)+'</span>' : '')
+    + (v.evidence ? '<span class="evo-drill-ev"><i class="fas fa-info-circle"></i></span>' : '')
+    + '</div></div>';
+}
+
+function renderScoreBreakdown(brk, label) {
+  if (!brk || !brk.n) return '<div class="evo-drill-empty">No vulnerability data for '+label+'</div>';
+  const sevs = [
+    {k:'crit',l:'Critical',c:'critical',v:25},
+    {k:'high',l:'High',c:'high',v:16},
+    {k:'med',l:'Medium',c:'medium',v:8},
+    {k:'low',l:'Low',c:'low',v:3},
+    {k:'info',l:'Info',c:'info',v:1}
+  ];
+  let rows = sevs.map(s => '<div class="evo-score-row"><span class="evo-sev-label '+s.c+'">'+s.l+'</span><span class="evo-score-count">'+brk[s.k]+'</span><span class="evo-score-op">&times; '+s.v+'</span><span class="evo-score-eq">= '+(brk[s.k]*s.v)+'</span></div>').join('');
+  const rawScore = brk.max_penalty > 0 ? Math.round(brk.penalty / brk.max_penalty * 100) : 0;
+  return '<div style="margin-bottom:12px"><strong>'+label+'</strong></div>'
+    + '<div class="evo-score-table">'+rows+'</div>'
+    + '<div class="evo-score-total"><span><b>Total penalty:</b> '+brk.penalty+' / '+brk.max_penalty+'</span><span><b>Security Score:</b> '+rawScore+' (0=best, 100=worst)</span></div>';
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/[&<>"]/g, function(m) {
+    if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; if(m==='"') return '&quot;'; return m;
+  });
+}
+
+function showEvoModal(compIdx, drill) {
+  const comp = COMP_DATA[compIdx];
+  if (!comp) return;
+  const overlay = document.getElementById('evoModalOverlay');
+  const body = document.getElementById('evoModalBody');
+  const title = document.getElementById('evoModalTitle');
+  const badge = document.getElementById('evoModalBadge');
+  overlay.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+
+  const labels = {fixed:'Fixed Vulnerabilities',new:'New Vulnerabilities',persistent:'Persistent Vulnerabilities',score:'Security Score Breakdown',fixed_rate:'Fix Rate Analysis'};
+  const icons = {fixed:'<i class="fas fa-check-circle" style="color:#10b981"></i>',new:'<i class="fas fa-exclamation-circle" style="color:#ef4444"></i>',persistent:'<i class="fas fa-sync" style="color:#f59e0b"></i>',score:'<i class="fas fa-chart-line" style="color:#7c3aed"></i>',fixed_rate:'<i class="fas fa-percent" style="color:#10b981"></i>'};
+  badge.innerHTML = icons[drill]||'';
+  title.textContent = labels[drill]||'Details';
+  document.getElementById('evoSearch').value = '';
+
+  let html = '';
+  if (drill === 'fixed') {
+    const list = comp.fixed_details || [];
+    html = '<div class="evo-summary-stat"><strong>'+list.length+'</strong> fixed vulnerabilities</div><div class="evo-drill-list" data-type="fixed">'+(list.length ? list.map(v=>renderVulnRow(v)).join('') : '<div class="evo-drill-empty">No fixed vulnerabilities</div>')+'</div>';
+  } else if (drill === 'new') {
+    const list = comp.new_details || [];
+    html = '<div class="evo-summary-stat"><strong>'+list.length+'</strong> new vulnerabilities</div><div class="evo-drill-list" data-type="new">'+(list.length ? list.map(v=>renderVulnRow(v)).join('') : '<div class="evo-drill-empty">No new vulnerabilities</div>')+'</div>';
+  } else if (drill === 'persistent') {
+    const list = comp.persistent_details || [];
+    html = '<div class="evo-summary-stat"><strong>'+list.length+'</strong> persistent vulnerabilities</div><div class="evo-drill-list" data-type="persistent">'+(list.length ? list.map(v=>renderVulnRow(v)).join('') : '<div class="evo-drill-empty">No persistent vulnerabilities</div>')+'</div>';
+  } else if (drill === 'score') {
+    const delta = comp.score_after - comp.score_before;
+    const improved = delta <= 0;
+    html = '<div class="evo-summary-stat">Security Score: <strong>'+comp.score_before+'</strong> → <strong>'+comp.score_after+'</strong> (Δ<span class="'+(improved?'good':'bad')+'">'+(delta>=0?'+':'')+delta+'</span> — '+(improved?'improved &#x1f4c9;':'worsened &#x1f4c8;')+')</div>'
+      + '<div class="evo-side-by-side">'
+      + '<div class="evo-side">'+renderScoreBreakdown(comp.score_breakdown_before,'Before — '+comp.scan_a_date)+'</div>'
+      + '<div class="evo-side">'+renderScoreBreakdown(comp.score_breakdown_after,'After — '+comp.scan_b_date)+'</div>'
+      + '</div>'
+      + '<div class="evo-drill-ai"><i class="fas fa-robot" style="color:#7c3aed"></i> '+escHtml(comp.ai_summary||'')+'</div>';
+  } else if (drill === 'fixed_severity') {
+    const sev = document.getElementById('evoModal').dataset.sev || '';
+    const list = (comp.fixed_details||[]).filter(v => (v.severity||'').toUpperCase() === sev);
+    const svc = {'CRITICAL':'#7f1d1d','HIGH':'#ef4444','MEDIUM':'#f97316','LOW':'#22c55e'};
+    badge.innerHTML = '<span style="color:'+(svc[sev]||'#64748b')+'">\u2714</span>';
+    title.textContent = sev + ' — Fixed Vulnerabilities ('+list.length+')';
+    html = '<div class="evo-summary-stat"><strong>'+list.length+'</strong> '+sev+' vulnerability(ies) were fixed</div>'
+      + '<div class="evo-drill-list" data-type="fixed_sev">'
+      + (list.length ? list.map(v => renderVulnRow(v, true)).join('') : '<div class="evo-drill-empty">No '+sev+' vulnerabilities fixed</div>')
+      + '</div>';
+  } else if (drill === 'fixed_rate') {
+    const total = comp.total_before||0;
+    const fixed = comp.fixed||0;
+    const pct = comp.pct_fixed||0;
+    html = '<div class="evo-summary-stat">Fixed <strong>'+fixed+'</strong> of <strong>'+total+'</strong> vulnerabilities (<strong>'+pct+'%</strong>)</div>'
+      + '<div class="evo-side-by-side"><div class="evo-side"><div class="evo-score-table">'
+      + Object.entries(comp.fixed_by_severity||{}).map(([k,v]) => '<div class="evo-score-row"><span class="evo-sev-label '+k.toLowerCase()+'">'+k+'</span><span class="evo-score-count">'+v+' fixed</span></div>').join('')
+      + '</div></div></div>';
+  }
+
+  // Regressions & improvements
+  if ((drill === 'persistent' || drill === 'score') && (comp.regressions||[]).length) {
+    html += '<div style="margin-top:16px"><strong style="color:#ef4444"><i class="fas fa-exclamation-triangle"></i> Severity regressions</strong></div>'
+      + comp.regressions.map(r => '<div class="evo-drill-item"><div class="evo-drill-left"><strong>'+escHtml(r.title)+'</strong></div><div class="evo-drill-right"><span class="evo-drill-sev severity-soft-'+sevClass(r.before)+'">'+r.before+'</span> → <span class="evo-drill-sev severity-soft-'+sevClass(r.after)+'">'+r.after+'</span>'+(r.cvss_before||r.cvss_after?' <span style="font-size:11px;color:#64748b">CVSS '+(r.cvss_before||'?')+' → '+(r.cvss_after||'?')+'</span>':'')+'</div></div>').join('');
+  }
+  if ((drill === 'persistent' || drill === 'score') && (comp.improvements||[]).length) {
+    html += '<div style="margin-top:16px"><strong style="color:#10b981"><i class="fas fa-check-circle"></i> Severity improvements</strong></div>'
+      + comp.improvements.map(r => '<div class="evo-drill-item"><div class="evo-drill-left"><strong>'+escHtml(r.title)+'</strong></div><div class="evo-drill-right"><span class="evo-drill-sev severity-soft-'+sevClass(r.before)+'">'+r.before+'</span> → <span class="evo-drill-sev severity-soft-'+sevClass(r.after)+'">'+r.after+'</span>'+(r.cvss_before||r.cvss_after?' <span style="font-size:11px;color:#64748b">CVSS '+(r.cvss_before||'?')+' → '+(r.cvss_after||'?')+'</span>':'')+'</div></div>').join('');
+  }
+
+  // Port changes
+  if (drill === 'score') {
+    if ((comp.ports_added_list||[]).length) html += '<div style="margin-top:16px"><strong style="color:#ef4444"><i class="fas fa-plus-circle"></i> New ports exposed</strong></div>'+comp.ports_added_list.map(p=>'<div class="evo-drill-item"><div class="evo-drill-left"><strong>Port '+p.port+'</strong><small>'+escHtml(p.service+' '+(p.product||''))+'</small></div></div>').join('');
+    if ((comp.ports_removed_list||[]).length) html += '<div style="margin-top:16px"><strong style="color:#10b981"><i class="fas fa-minus-circle"></i> Ports closed</strong></div>'+comp.ports_removed_list.map(p=>'<div class="evo-drill-item"><div class="evo-drill-left"><strong>Port '+p.port+'</strong><small>'+escHtml(p.service+' '+(p.product||''))+'</small></div></div>').join('');
+  }
+
+  // AI section on score-related views
+  if (drill === 'score' || drill === 'fixed_rate') {
+    html += '<div class="evo-drill-ai"><i class="fas fa-robot" style="color:#7c3aed"></i> '+escHtml(comp.ai_summary||'No AI summary available')+'</div>';
+  }
+
+  html += '<div class="evo-modal-footer"><span>'+comp.asset_name+' &middot; '+comp.scan_a_date+' → '+comp.scan_b_date+'</span></div>';
+  body.innerHTML = html;
+  document.getElementById('evoSearch').focus();
+}
+
+function closeEvoModal(e) {
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById('evoModalOverlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function filterEvoList() {
+  const q = document.getElementById('evoSearch').value.toLowerCase();
+  document.querySelectorAll('.evo-drill-item').forEach(el => {
+    el.style.display = (!q || el.textContent.toLowerCase().includes(q)) ? '' : 'none';
+  });
+}
+
+document.addEventListener('click', function(e) {
+  const stat = e.target.closest('.clickable-stat');
+  if (stat) {
+    const grid = stat.closest('.evo-stats-grid');
+    if (grid) {
+      showEvoModal(parseInt(grid.dataset.compIdx), stat.dataset.drill);
+    }
+  }
+  const sevRow = e.target.closest('.clickable-sev');
+  if (sevRow) {
+    document.getElementById('evoModal').dataset.sev = sevRow.dataset.sev;
+    showEvoModal(parseInt(sevRow.dataset.compIdx), 'fixed_severity');
+  }
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeEvoModal();
+});
 </script>
+
+<style>
+#evoModalOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;align-items:center;justify-content:center;backdrop-filter:blur(2px);padding:20px}
+.evo-modal{background:#fff;border-radius:20px;width:min(900px,95vw);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.2);animation:evoFadeIn .25s ease}
+@keyframes evoFadeIn{from{opacity:0;transform:translateY(20px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+.evo-modal-header{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #e5e7eb;flex-shrink:0}
+.evo-modal-header > div{display:flex;align-items:center;gap:10px}
+.evo-modal-header h3{margin:0;font-size:16px;font-weight:600}
+.evo-modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:#6b7280;padding:0 4px;line-height:1}
+.evo-modal-close:hover{color:#111}
+.evo-modal-search{display:flex;align-items:center;gap:8px;padding:10px 22px;border-bottom:1px solid #f3f4f6;flex-shrink:0}
+.evo-modal-search input{flex:1;border:1px solid #e5e7eb;border-radius:8px;padding:7px 12px;font-size:13px;outline:none}
+.evo-modal-search input:focus{border-color:#7c3aed}
+.evo-modal-body{flex:1;overflow-y:auto;padding:18px 22px}
+.evo-modal-footer{padding:12px 0 0;font-size:12px;color:#9ca3af;text-align:center;border-top:1px solid #f3f4f6;margin-top:12px}
+.evo-drill-badge{font-size:20px;display:flex}
+.evo-summary-stat{font-size:15px;padding:12px 16px;background:#f8fafc;border-radius:12px;margin-bottom:14px}
+.evo-summary-stat strong{font-size:18px}
+.evo-drill-list{display:flex;flex-direction:column;gap:6px}
+.evo-drill-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-radius:10px;background:#f8fafc;border-left:3px solid transparent;transition:background .15s}
+.evo-drill-item:hover{background:#f1f5f9}
+.evo-drill-item.severity-critical{border-left-color:#7f1d1d}
+.evo-drill-item.severity-high{border-left-color:#ef4444}
+.evo-drill-item.severity-medium{border-left-color:#f97316}
+.evo-drill-item.severity-low{border-left-color:#22c55e}
+.evo-drill-item.severity-info{border-left-color:#64748b}
+.evo-drill-left{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.evo-drill-left .evo-drill-info{flex:1;min-width:0}
+.evo-drill-left .evo-drill-info strong{display:block;font-size:13px;line-height:1.3}
+.evo-drill-left .evo-drill-info small{display:block;font-size:11px;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.evo-drill-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.evo-drill-sev{font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap}
+.evo-drill-cve{font-size:10px;color:#7c3aed;background:#ede9fe;padding:2px 6px;border-radius:4px;font-family:monospace;margin-left:4px}
+.evo-drill-cvss{font-size:11px;font-weight:600;color:#6b7280;white-space:nowrap}
+.evo-drill-port{font-size:11px;color:#6366f1;margin-left:6px}
+.evo-drill-ev{color:#94a3b8;font-size:12px;cursor:help}
+.evo-drill-empty{padding:24px;text-align:center;color:#9ca3af;font-size:13px}
+.evo-drill-ai{background:#ede9fe;border-radius:12px;padding:14px 16px;margin-top:16px;font-size:13px;line-height:1.6;color:#4c1d95}
+.evo-side-by-side{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+.evo-side{background:#f8fafc;border-radius:12px;padding:14px}
+.evo-score-table{display:flex;flex-direction:column;gap:4px}
+.evo-score-row{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px;font-size:12px}
+.evo-score-row:nth-child(odd){background:#fff}
+.evo-score-count{min-width:30px;text-align:right;font-weight:700;font-size:13px}
+.evo-score-op{color:#94a3b8;font-size:11px}
+.evo-score-eq{color:#6b7280;font-weight:600;margin-left:auto;font-size:12px}
+.evo-score-total{display:flex;justify-content:space-between;padding:10px 8px;margin-top:6px;border-top:1px solid #e5e7eb;font-size:13px}
+.clickable-stat{cursor:pointer;transition:transform .15s,box-shadow .15s}
+.clickable-stat:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.08)}
+@media(max-width:700px){.evo-side-by-side{grid-template-columns:1fr}}
+</style>
 
 {% endblock %}

@@ -1,350 +1,224 @@
 {% extends "base.html" %}
 
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/scan.css') }}">
 
 <div class="scan-layout">
 
-    <!-- LEFT SIDE -->
-    <div class="scan-main">
+  <div class="scan-main">
 
-        <!-- HERO -->
-        <section class="scan-hero">
-            <div class="hero-text">
-                <span class="badge">NEW SCAN</span>
-                <h1>Start a New Scan</h1>
-                <p>Let Vulnix discover vulnerabilities before attackers do.</p>
+    <section class="scan-hero">
+      <div class="hero-text">
+        <span class="badge">NEW SCAN</span>
+        <h1>Start a New Scan</h1>
+        <p>Let Vulnix discover vulnerabilities before attackers do.</p>
+      </div>
+      <div class="hero-graphic">
+        <div class="radar"><div class="ring"></div><div class="ring delay1"></div><div class="ring delay2"></div><div class="scan-line"></div></div>
+      </div>
+    </section>
+
+    <section class="scan-card">
+      <form class="scan-form" action="/run_scan" method="POST">
+        <input type="hidden" name="scan_mode" id="scan-mode-hidden" value="unauthenticated">
+
+        <div class="scan-form-grid">
+          <!-- Row: Name + Target -->
+          <label class="field">
+            <span>Machine Name</span>
+            <div class="input-box"><input type="text" name="machine_name" placeholder="e.g. Production API, Kali VM"></div>
+          </label>
+
+          <label class="field">
+            <span>Target <i class="fas fa-info-circle"></i></span>
+            <div class="input-box"><input type="text" name="target" id="target-input" placeholder="IP, Domain or URL" required></div>
+            <small id="target-helper" style="color:#94a3b8;font-size:11px;margin-top:4px;display:block">e.g. 192.168.1.10 or scanme.nmap.org</small>
+          </label>
+
+          <!-- Scan Type + Scope -->
+          <label class="field full-row">
+            <span>Scan Type</span>
+            <div class="input-box">
+              <i class="fas fa-shield-alt left-icon"></i>
+              <select name="type" id="scan-type">
+                <option value="security">Security Scan</option>
+                <option value="web">Web Scan</option>
+              </select>
             </div>
-            <div class="hero-graphic">
-                <div class="radar">
-                    <div class="ring"></div>
-                    <div class="ring delay1"></div>
-                    <div class="ring delay2"></div>
-                    <div class="scan-line"></div>
+          </label>
+
+          <label class="field full-row" id="scope-row">
+            <span>Scan Scope</span>
+            <div class="scope-selector">
+              <label class="scope-pill"><input type="radio" name="scan_scope" value="host" checked><span><i class="fas fa-desktop"></i> Host Scan</span></label>
+              <label class="scope-pill"><input type="radio" name="scan_scope" value="network"><span><i class="fas fa-network-wired"></i> Network Scan</span></label>
+            </div>
+          </label>
+
+          <label class="field full-row" id="profile-row" style="display:none">
+            <span>Scan Profile</span>
+            <div class="scope-selector">
+              <label class="scope-pill"><input type="radio" name="profile" value="quick" checked><span><i class="fas fa-bolt"></i> Quick</span></label>
+              <label class="scope-pill"><input type="radio" name="profile" value="balanced"><span><i class="fas fa-scale-balanced"></i> Balanced</span></label>
+              <label class="scope-pill"><input type="radio" name="profile" value="deep"><span><i class="fas fa-microscope"></i> Deep</span></label>
+            </div>
+          </label>
+
+          <!-- Engine (security only) -->
+          <div id="sec-engine" class="section-card full-row">
+            <div class="section-title"><i class="fas fa-network-wired"></i> Scan Engine</div>
+            <div class="engine-row">
+              <div class="tcp-group">
+                <span class="section-label">TCP Method</span>
+                <div class="pill-group">
+                  <label class="pill"><input type="radio" name="tcp_scan_method" value="connect" checked><span>TCP Connect</span></label>
+                  <label class="pill"><input type="radio" name="tcp_scan_method" value="syn"><span>SYN Scan</span></label>
                 </div>
+              </div>
+              <label class="udp-toggle-wrap">
+                <span class="section-label">UDP Scan</span>
+                <label class="switch-pill">
+                  <input type="checkbox" name="include_udp" value="1" id="udp-checkbox">
+                  <span class="switch-track"><span class="switch-knob"></span></span>
+                </label>
+              </label>
+              <div class="fp-box">
+                <i class="fas fa-fingerprint"></i>
+                <div><b>Fingerprinting</b><span>Service banners, version, OS</span></div>
+              </div>
             </div>
-        </section>
+          </div>
 
-        <!-- FORM -->
-        <section class="scan-card">
+          <!-- Credentials (security only) -->
+          <div id="sec-creds" class="section-card full-row">
+            <div class="section-title-bar">
+              <div class="section-title"><i class="fas fa-lock"></i> Authenticated Credentials (Optional)</div>
+              <label class="switch">
+                <input type="checkbox" id="auth-toggle">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="cred-grid" id="cred-fields-inner">
+              <label class="field"><span>Username</span><div class="input-box"><i class="fas fa-user left-icon"></i><input type="text" name="auth_username" placeholder="Enter username"></div></label>
+              <label class="field"><span>Password</span><div class="input-box"><i class="fas fa-lock left-icon"></i><input type="password" name="auth_password" placeholder="Enter password"></div></label>
+              <label class="field full-row"><span>Credential Type</span>
+                <div class="pill-group">
+                  <label class="pill"><input type="radio" name="auth_type" value="ssh" checked><span>SSH (Linux)</span></label>
+                  <label class="pill"><input type="radio" name="auth_type" value="winrm"><span>Windows (WinRM)</span></label>
+                </div>
+              </label>
+              <label class="field" id="auth-port-field" style="display:none"><span id="auth-port-label">Port</span><div class="input-box"><i class="fas fa-plug left-icon"></i><input type="number" name="auth_port" id="auth-port-input" placeholder="22"></div></label>
+              <label class="field full-row" id="ssh-key-field" style="display:none"><span>SSH Private Key</span><div class="input-box"><i class="fas fa-key left-icon"></i><textarea name="auth_ssh_key" rows="3" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea></div></label>
+            </div>
+          </div>
 
-            <h3 class="card-title">
-                <i class="fas fa-cube"></i>
-                SCAN CONFIGURATION
-            </h3>
+          <!-- Description panel (dynamic) -->
+          <div id="desc-panel" class="section-card full-row desc-panel">
+            <div class="section-title"><i class="fas fa-info-circle"></i> <span id="desc-title">What this scan does</span></div>
+            <div class="desc-list" id="desc-list"></div>
+            <div class="desc-tip" id="desc-tip"></div>
+          </div>
 
-            <form class="scan-form" action="/run_scan" method="POST">
-
-                <input type="hidden" name="scan_mode" id="scan-mode-hidden" value="unauthenticated">
-
-                <div class="grid-2">
-
-                    <label class="field">
-                        <span>Machine Name <i class="fas fa-info-circle"></i></span>
-                        <div class="input-box no-icon">
-                            <input type="text" name="machine_name" placeholder="e.g. Production API, Kali VM, Office Router">
-                        </div>
-                    </label>
-
-                    <label class="field">
-                        <span>Target <i class="fas fa-info-circle"></i></span>
-                        <div class="input-box icon-right no-icon">
-                            <input type="text" name="target" placeholder="IP, Domain or URL" required>
-                            <i class="fas fa-cog"></i>
-                        </div>
-                    </label>
-
-                    <label class="field full-row">
-                        <span>Scan Type <i class="fas fa-info-circle"></i></span>
-                        <div class="input-box">
-                            <i class="fas fa-shield-alt left-icon"></i>
-                            <select name="type" id="scan-type">
-                                <option value="security">Security Scan</option>
-                                <option value="web">Web Scan</option>
-                                <option value="cve">CVE Search</option>
-                            </select>
-                        </div>
-                    </label>
-
-                    <!-- REDESIGNED ENGINE BOX -->
-                    <div class="engine-box full-row">
-                        <div class="engine-header">
-                            <div class="engine-header-left">
-                                <i class="fas fa-network-wired"></i>
-                                <span>Scan Engine</span>
-                            </div>
-                            <!-- UDP Toggle -->
-                           <!-- UDP Toggle -->
-<label class="proto-toggle-wrap">
-    <input type="checkbox" name="include_udp" value="1" id="udp-checkbox">
-
-    <div class="udp-toggle">
-        <span>UDP Scan</span>
-
-        <div class="udp-switch">
-            <div class="udp-circle"></div>
+          <!-- Start button -->
+          <button type="submit" class="scan-btn"><i class="fas fa-play"></i> Start Scan</button>
         </div>
-    </div>
-</label>
-                        </div>
-
-                        <div class="engine-body">
-                            <!-- TCP Method selector — pill style -->
-                            <div class="tcp-method-group">
-                                <span class="tcp-method-label">TCP Method</span>
-                                <div class="tcp-pills">
-                                    <label class="tcp-pill">
-                                        <input type="radio" name="tcp_scan_method" value="connect" checked>
-                                        <span>
-                                            <i class="fas fa-plug"></i>
-                                            TCP Connect
-                                        </span>
-                                    </label>
-                                    <label class="tcp-pill">
-                                        <input type="radio" name="tcp_scan_method" value="syn">
-                                        <span>
-                                            <i class="fas fa-bolt"></i>
-                                            SYN Scan
-                                        </span>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <!-- Fingerprinting info -->
-                            <div class="engine-fingerprint">
-                                <div class="fingerprint-icon">
-                                    <i class="fas fa-fingerprint"></i>
-                                </div>
-                                <div>
-                                    <b>Fingerprinting</b>
-                                    <span>Service banners, version detection and OS hints.</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-
-                <!-- CREDENTIALS -->
-                <div id="credential-fields" class="credentials">
-
-                    <div class="cred-header">
-                        <span><i class="fas fa-lock"></i> Authenticated Credentials (Optional)</span>
-                        <label class="switch">
-                            <input type="checkbox" id="auth-toggle">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-
-                    <div class="grid-2" id="cred-fields-inner">
-
-                        <label class="field">
-                            <span>Username</span>
-                            <div class="input-box">
-                                <i class="fas fa-user left-icon"></i>
-                                <input type="text" name="auth_username" placeholder="Enter username">
-                            </div>
-                        </label>
-
-                        <label class="field">
-                            <span>Password</span>
-                            <div class="input-box">
-                                <i class="fas fa-lock left-icon"></i>
-                                <input type="password" name="auth_password" placeholder="Enter password">
-                            </div>
-                        </label>
-
-                        <label class="field full-row">
-                            <span>Credential Type</span>
-                            <div class="cred-type-pills">
-                                <label class="cred-type-pill">
-                                    <input type="radio" name="auth_type" value="http_basic" checked>
-                                    <span>
-                                        <i class="fas fa-globe"></i>
-                                        HTTP Basic
-                                    </span>
-                                </label>
-                                <label class="cred-type-pill">
-                                    <input type="radio" name="auth_type" value="ssh">
-                                    <span>
-                                        <i class="fas fa-terminal"></i>
-                                        SSH (Linux/Unix)
-                                    </span>
-                                </label>
-                                <label class="cred-type-pill">
-                                    <input type="radio" name="auth_type" value="winrm">
-                                    <span>
-                                        <i class="fas fa-desktop"></i>
-                                        Windows (WinRM)
-                                    </span>
-                                </label>
-                            </div>
-                        </label>
-
-                        <!-- HTTP Basic: URL field -->
-                        <label class="field full-row" id="http-url-field" style="display:none;">
-                            <span>Target URL <small style="font-weight:400;opacity:.7;">(for HTTP Basic auth)</small></span>
-                            <div class="input-box">
-                                <i class="fas fa-link left-icon"></i>
-                                <input type="text" name="auth_http_url" placeholder="http://192.168.1.1/admin">
-                            </div>
-                        </label>
-
-                        <!-- Port field (SSH / WinRM only) -->
-                        <label class="field" id="auth-port-field" style="display:none;">
-                            <span id="auth-port-label">Port</span>
-                            <div class="input-box">
-                                <i class="fas fa-plug left-icon"></i>
-                                <input type="number" name="auth_port" id="auth-port-input"
-                                       placeholder="22" min="1" max="65535">
-                            </div>
-                        </label>
-
-                        <!-- SSH Key (SSH only) -->
-                        <label class="field full-row" id="ssh-key-field" style="display:none;">
-                            <span>SSH Private Key <small style="font-weight:400;opacity:.7;">(optional — overrides password)</small></span>
-                            <div class="input-box" style="height:auto;">
-                                <i class="fas fa-key left-icon" style="top:14px;"></i>
-                                <textarea name="auth_ssh_key" id="auth-ssh-key"
-                                          rows="5"
-                                          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
-                                          style="padding-left:2.4rem;resize:vertical;font-family:monospace;font-size:12px;"></textarea>
-                            </div>
-                        </label>
-
-                    </div>
-                </div>
-
-                <button type="submit" class="scan-btn">
-                    <i class="fas fa-play"></i>
-                    Start Scan →
-                </button>
-
-            </form>
-        </section>
-    </div>
-
-    <!-- RIGHT SIDE -->
-    <aside class="scan-side">
-
-        <div class="side-card">
-            <h4 class="side-title">SCAN OVERVIEW</h4>
-
-            <div class="side-row">
-                <div class="icon-box blue"><i class="fas fa-clock"></i></div>
-                <div class="side-text">
-                    <span>Estimated Time</span>
-                    <b>2 - 5 min</b>
-                </div>
-            </div>
-
-            <div class="side-row">
-                <div class="icon-box green"><i class="fas fa-signal"></i></div>
-                <div class="side-text">
-                    <span>Scan Depth</span>
-                    <b>Medium</b>
-                </div>
-            </div>
-
-            <div class="side-row">
-                <div class="icon-box purple"><i class="fas fa-shield-alt"></i></div>
-                <div class="side-text">
-                    <span>Checks Performed</span>
-                    <b>120+</b>
-                </div>
-            </div>
-
-            <div class="side-row last">
-                <div class="icon-box orange"><i class="fas fa-database"></i></div>
-                <div class="side-text">
-                    <span>Data Collected</span>
-                    <b>Ports, UDP, Services,<br>Versions, OS, CVEs</b>
-                </div>
-            </div>
-        </div>
-
-        <div class="side-card2">
-
-            <h4 class="side2-title">WHAT THIS SCAN DOES</h4>
-
-            <div class="side2-list">
-                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Discovers open ports and services</span></div>
-                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Runs TCP Connect, optional SYN and UDP probes</span></div>
-                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Fingerprints service versions and OS hints</span></div>
-                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Detects known vulnerabilities</span></div>
-                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Analyzes configurations</span></div>
-                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Checks for web vulnerabilities</span></div>
-                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Generates risk score and report</span></div>
-                <div class="side2-item"><i class="fas fa-check-circle"></i><span>Adds AI summary, fixes, tags and attack paths</span></div>
-            </div>
-
-            <div class="scan-tip">
-                <i class="fas fa-lightbulb"></i>
-                <p><strong>Tip:</strong> Authenticated scans provide deeper insights and better accuracy.</p>
-            </div>
-
-        </div>
-
-    </aside>
-
+      </form>
+    </section>
+  </div>
 </div>
 
 <script>
+// ── Auth toggle ──
 const toggle      = document.getElementById("auth-toggle");
 const hiddenInput = document.getElementById("scan-mode-hidden");
 const credInner   = document.getElementById("cred-fields-inner");
-
 const portField   = document.getElementById("auth-port-field");
 const portInput   = document.getElementById("auth-port-input");
 const portLabel   = document.getElementById("auth-port-label");
 const sshKeyField = document.getElementById("ssh-key-field");
-const httpUrlField= document.getElementById("http-url-field");
-
-const AUTH_PORTS  = { ssh: "22", winrm: "5985", http_basic: "" };
-const PORT_LABELS = { ssh: "SSH Port", winrm: "WinRM Port", http_basic: "" };
-
+const AUTH_PORTS  = { ssh: "22", winrm: "5985" };
+const PORT_LABELS = { ssh: "SSH Port", winrm: "WinRM Port" };
 const allInputs = credInner.querySelectorAll("input, select, textarea");
 
 function getAuthType() {
-    const checked = document.querySelector('input[name="auth_type"]:checked');
-    return checked ? checked.value : "http_basic";
+  const c = document.querySelector('input[name="auth_type"]:checked');
+  return c ? c.value : "ssh";
 }
-
 function applyAuthType() {
-    const type    = getAuthType();
-    const enabled = toggle.checked;
-
-    // HTTP Basic: show URL field, hide port & ssh key
-    httpUrlField.style.display  = (type === "http_basic") ? "" : "none";
-    portField.style.display     = (type !== "http_basic") ? "" : "none";
-    sshKeyField.style.display   = (type === "ssh") ? "" : "none";
-
-    if (portLabel) portLabel.textContent = PORT_LABELS[type] || "Port";
-    if (portInput && (!portInput.value || Object.values(AUTH_PORTS).includes(portInput.value))) {
-        portInput.value       = "";
-        portInput.placeholder = AUTH_PORTS[type] || "";
-    }
-
-    allInputs.forEach(el => {
-        el.disabled      = !enabled;
-        el.style.opacity = enabled ? "1" : "0.5";
-    });
+  const t = getAuthType(), e = toggle.checked;
+  portField.style.display= "";
+  sshKeyField.style.display = t==="ssh" ? "" : "none";
+  if (portLabel) portLabel.textContent = PORT_LABELS[t]||"Port";
+  if (portInput && (!portInput.value||Object.values(AUTH_PORTS).includes(portInput.value))) {
+    portInput.value=""; portInput.placeholder=AUTH_PORTS[t]||"";
+  }
+  allInputs.forEach(el => { el.disabled=!e; el.style.opacity=e?"1":"0.5"; });
 }
-
 toggle.addEventListener("change", () => {
-    hiddenInput.value = toggle.checked ? "authenticated" : "unauthenticated";
-    applyAuthType();
+  hiddenInput.value = toggle.checked ? "authenticated" : "unauthenticated";
+  applyAuthType();
 });
-
-document.querySelectorAll('input[name="auth_type"]').forEach(radio => {
-    radio.addEventListener("change", applyAuthType);
-});
-
-
-
-// Init
+document.querySelectorAll('input[name="auth_type"]').forEach(r => r.addEventListener("change", applyAuthType));
 toggle.dispatchEvent(new Event("change"));
+
+// ── Dynamic scan type ──
+const scanType = document.getElementById("scan-type");
+const secEngine = document.getElementById("sec-engine");
+const secCreds = document.getElementById("sec-creds");
+const descList = document.getElementById("desc-list");
+const descTip = document.getElementById("desc-tip");
+const descTitle = document.getElementById("desc-title");
+const scopeRow = document.getElementById("scope-row");
+const profileRow = document.getElementById("profile-row");
+
+// ── Scope toggle ──
+const scopeInputs = document.querySelectorAll('input[name="scan_scope"]');
+const targetInput = document.getElementById("target-input");
+const targetHelper = document.getElementById("target-helper");
+
+const HOST_PLACEHOLDER = "IP, Domain or URL";
+const HOST_HELPER = "e.g. 192.168.1.10 or scanme.nmap.org";
+const NET_PLACEHOLDER = "Subnet (CIDR)";
+const NET_HELPER = "e.g. 192.168.1.0/24 or 10.0.0.0/16";
+
+scopeInputs.forEach(r => r.addEventListener("change", () => {
+  const isNet = document.querySelector('input[name="scan_scope"]:checked')?.value === "network";
+  targetInput.placeholder = isNet ? NET_PLACEHOLDER : HOST_PLACEHOLDER;
+  targetHelper.innerHTML = isNet ? NET_HELPER : HOST_HELPER;
+  if (scanType.value === "security") updateScanUI();
+}));
+
+const DESCS = {
+  security: {
+    title: "Security Scan — full port + vulnerability scan",
+    items: ["Discovers open ports and services","Runs TCP Connect, optional SYN and UDP probes","Fingerprints service versions and OS","Checks for web vulnerabilities","Finds CVE matches via NVD database","Generates risk score, AI analysis and report","Host Scan: single target, detailed analysis","Network Scan: CIDR subnet, auto host discovery, per-host risk ranking"],
+    tip: "<i class='fas fa-lightbulb'></i> <strong>Tip:</strong> Authenticated scans provide deeper insights and better accuracy."
+  },
+  web: {
+    title: "Web Scan — deep web security analysis",
+    items: ["Analyzes HTTP security headers","Checks cookie security (Secure, HttpOnly, SameSite)","Scans for sensitive files and endpoints","Detects technologies and frameworks","Analyzes JavaScript for secrets and tokens","Tests CORS, HTTP methods, SSL/TLS config","Detects XSS and SQLi indicators","Generates web risk score and AI report"],
+    tip: "<i class='fas fa-lightbulb'></i> <strong>Tip:</strong> Web scans are non-invasive and require no credentials."
+  },
+
+};
+
+function updateScanUI() {
+  const t = scanType.value;
+  const scope = document.querySelector('input[name="scan_scope"]:checked')?.value || "host";
+  const isSec = t === "security";
+  const isNet = isSec && scope === "network";
+  secEngine.style.display = isSec ? "" : "none";
+  scopeRow.style.display = isSec ? "" : "none";
+  profileRow.style.display = isNet ? "" : "none";
+  secCreds.style.display = isSec && !isNet ? "" : "none";
+
+  const d = DESCS[t];
+  descTitle.textContent = d.title;
+  descList.innerHTML = d.items.map(s => '<div class="desc-item"><i class="fas fa-check-circle"></i> '+s+'</div>').join("");
+  descTip.innerHTML = d.tip;
+}
+scanType.addEventListener("change", updateScanUI);
+updateScanUI();
 </script>
 
 {% endblock %}
