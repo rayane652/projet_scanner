@@ -243,8 +243,10 @@
         <canvas id="trendChart" height="80"></canvas>
     </div>
 
+
+
     <!-- ══ SECURITY EVOLUTION ══ -->
-    {% set comps = dashboard_data.scan_comparisons or [] %}
+    {% set comps = dashboard_data.get("scan_comparisons", []) %}
     {% if comps %}
     <div class="panel">
         <div class="panel-head">
@@ -317,32 +319,12 @@
                 {% endfor %}
             </div>
             {% endif %}
-
-            <div class="evo-sev-bars">
-                {% for sev in ["CRITICAL","HIGH","MEDIUM","LOW"] %}
-                {% set fixed_n = comp.fixed_by_severity.get(sev, 0) %}
-                {% set new_n = comp.new_by_severity.get(sev, 0) %}
-                {% set total = fixed_n + new_n %}
-                {% if total > 0 %}
-                <div class="evo-sev-row clickable-sev" data-comp-idx="{{ loop.index0 }}" data-sev="{{ sev }}" data-type="fixed" title="Click to see fixed {{ sev }} vulnerabilities">
-                    <span class="evo-sev-label {{ sev|lower }}">{{ sev }}</span>
-                    <div class="evo-sev-bar-track">
-                        {% set pct_f = (fixed_n / total * 100)|int %}
-                        {% set pct_n = (new_n / total * 100)|int %}
-                        {% if fixed_n > 0 %}<div class="evo-sev-bar evo-sev-fixed" style="width:{{ pct_f }}%">{{ fixed_n }}</div>{% endif %}
-                        {% if new_n > 0 %}<div class="evo-sev-bar evo-sev-new" style="width:{{ pct_n }}%">{{ new_n }}</div>{% endif %}
-                    </div>
-                    <span class="evo-sev-nums">-{{ fixed_n }} / +{{ new_n }}</span>
-                </div>
-                {% endif %}
-                {% endfor %}
-            </div>
         </div>
         {% endfor %}
     </div>
     {% endif %}
 
-    <!-- ══ ASSETS TABLE ══ -->
+        <!-- ══ ASSETS TABLE ══ -->
     <div class="panel">
         <div class="panel-head">
             <h2><i class="fas fa-server"></i> Assets Overview</h2>
@@ -624,8 +606,9 @@ updateLivePanel();
 setInterval(updateLivePanel, 2500);
 
 // ── EVOLUTION DRILL-DOWN MODAL ─────────────────────────────
-const COMP_DATA = {{ dashboard_data.scan_comparisons | tojson }};
+const COMP_DATA = {{ dashboard_data.get("scan_comparisons", []) | tojson }};
 
+if (COMP_DATA && COMP_DATA.length > 0) {
 const MODAL_HTML = `
 <div id="evoModalOverlay" onclick="closeEvoModal(event)">
   <div id="evoModal" class="evo-modal">
@@ -645,106 +628,35 @@ function sevClass(s) {
   return m[(s||'INFO').toUpperCase()]||'info';
 }
 
-function renderVulnRow(v, showChange) {
-  const sev = v.severity || v.severity_after || 'INFO';
-  const sevB = v.severity_before;
-  const cvss = v.cvss_score || v.cvss_after || '';
-  const cvssB = v.cvss_before;
-  const cve = v.cve_id || '';
-  return '<div class="evo-drill-item severity-'+sevClass(sev)+'">'
-    + '<div class="evo-drill-left">'
-    + '<span class="evo-drill-sev severity-soft-'+sevClass(sev)+'">'+(sevB && sevB !== sev ? sevB+'→'+sev : sev)+'</span>'
-    + '<div class="evo-drill-info">'
-    + '<strong>'+escHtml(v.title||'')+'</strong>'
-    + (cve ? '<code class="evo-drill-cve">'+cve+'</code>' : '')
-    + (v.description ? '<small>'+escHtml((v.description||'').slice(0,120))+'</small>' : '')
-    + (v.port ? '<span class="evo-drill-port"><i class="fas fa-plug"></i> Port '+v.port+'</span>' : '')
-    + '</div></div>'
-    + '<div class="evo-drill-right">'
-    + (cvss ? '<span class="evo-drill-cvss">CVSS '+(cvssB && cvssB !== cvss ? cvssB+'→'+cvss : cvss)+'</span>' : '')
-    + (v.evidence ? '<span class="evo-drill-ev"><i class="fas fa-info-circle"></i></span>' : '')
-    + '</div></div>';
-}
-
-function renderScoreBreakdown(brk, label) {
-  if (!brk || !brk.n) return '<div class="evo-drill-empty">No vulnerability data for '+label+'</div>';
-  const sevs = [
-    {k:'crit',l:'Critical',c:'critical',v:25},
-    {k:'high',l:'High',c:'high',v:16},
-    {k:'med',l:'Medium',c:'medium',v:8},
-    {k:'low',l:'Low',c:'low',v:3},
-    {k:'info',l:'Info',c:'info',v:1}
-  ];
-  let rows = sevs.map(s => '<div class="evo-score-row"><span class="evo-sev-label '+s.c+'">'+s.l+'</span><span class="evo-score-count">'+brk[s.k]+'</span><span class="evo-score-op">&times; '+s.v+'</span><span class="evo-score-eq">= '+(brk[s.k]*s.v)+'</span></div>').join('');
-  const rawScore = brk.max_penalty > 0 ? Math.round(brk.penalty / brk.max_penalty * 100) : 0;
-  return '<div style="margin-bottom:12px"><strong>'+label+'</strong></div>'
-    + '<div class="evo-score-table">'+rows+'</div>'
-    + '<div class="evo-score-total"><span><b>Total penalty:</b> '+brk.penalty+' / '+brk.max_penalty+'</span><span><b>Security Score:</b> '+rawScore+' (0=best, 100=worst)</span></div>';
-}
-
 function escHtml(s) {
-  if (!s) return '';
-  return String(s).replace(/[&<>"]/g, function(m) {
-    if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; if(m==='"') return '&quot;'; return m;
-  });
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function showEvoModal(compIdx, drill) {
+  const overlay = document.getElementById('evoModalOverlay');
+  if (!overlay) return;
   const comp = COMP_DATA[compIdx];
   if (!comp) return;
-  const overlay = document.getElementById('evoModalOverlay');
-  const body = document.getElementById('evoModalBody');
-  const title = document.getElementById('evoModalTitle');
-  const badge = document.getElementById('evoModalBadge');
-  overlay.style.display = 'flex';
-  document.body.style.overflow = 'hidden';
-
-  const labels = {fixed:'Fixed Vulnerabilities',new:'New Vulnerabilities',persistent:'Persistent Vulnerabilities',score:'Security Score Breakdown',fixed_rate:'Fix Rate Analysis'};
-  const icons = {fixed:'<i class="fas fa-check-circle" style="color:#10b981"></i>',new:'<i class="fas fa-exclamation-circle" style="color:#ef4444"></i>',persistent:'<i class="fas fa-sync" style="color:#f59e0b"></i>',score:'<i class="fas fa-chart-line" style="color:#7c3aed"></i>',fixed_rate:'<i class="fas fa-percent" style="color:#10b981"></i>'};
-  badge.innerHTML = icons[drill]||'';
-  title.textContent = labels[drill]||'Details';
-  document.getElementById('evoSearch').value = '';
-
-  let html = '';
-  if (drill === 'fixed') {
-    const list = comp.fixed_details || [];
-    html = '<div class="evo-summary-stat"><strong>'+list.length+'</strong> fixed vulnerabilities</div><div class="evo-drill-list" data-type="fixed">'+(list.length ? list.map(v=>renderVulnRow(v)).join('') : '<div class="evo-drill-empty">No fixed vulnerabilities</div>')+'</div>';
-  } else if (drill === 'new') {
-    const list = comp.new_details || [];
-    html = '<div class="evo-summary-stat"><strong>'+list.length+'</strong> new vulnerabilities</div><div class="evo-drill-list" data-type="new">'+(list.length ? list.map(v=>renderVulnRow(v)).join('') : '<div class="evo-drill-empty">No new vulnerabilities</div>')+'</div>';
-  } else if (drill === 'persistent') {
-    const list = comp.persistent_details || [];
-    html = '<div class="evo-summary-stat"><strong>'+list.length+'</strong> persistent vulnerabilities</div><div class="evo-drill-list" data-type="persistent">'+(list.length ? list.map(v=>renderVulnRow(v)).join('') : '<div class="evo-drill-empty">No persistent vulnerabilities</div>')+'</div>';
-  } else if (drill === 'score') {
-    const delta = comp.score_after - comp.score_before;
-    const improved = delta <= 0;
-    html = '<div class="evo-summary-stat">Security Score: <strong>'+comp.score_before+'</strong> → <strong>'+comp.score_after+'</strong> (Δ<span class="'+(improved?'good':'bad')+'">'+(delta>=0?'+':'')+delta+'</span> — '+(improved?'improved &#x1f4c9;':'worsened &#x1f4c8;')+')</div>'
-      + '<div class="evo-side-by-side">'
-      + '<div class="evo-side">'+renderScoreBreakdown(comp.score_breakdown_before,'Before — '+comp.scan_a_date)+'</div>'
-      + '<div class="evo-side">'+renderScoreBreakdown(comp.score_breakdown_after,'After — '+comp.scan_b_date)+'</div>'
-      + '</div>'
-      + '<div class="evo-drill-ai"><i class="fas fa-robot" style="color:#7c3aed"></i> '+escHtml(comp.ai_summary||'')+'</div>';
-  } else if (drill === 'fixed_severity') {
-    const sev = document.getElementById('evoModal').dataset.sev || '';
-    const list = (comp.fixed_details||[]).filter(v => (v.severity||'').toUpperCase() === sev);
-    const svc = {'CRITICAL':'#7f1d1d','HIGH':'#ef4444','MEDIUM':'#f97316','LOW':'#22c55e'};
-    badge.innerHTML = '<span style="color:'+(svc[sev]||'#64748b')+'">\u2714</span>';
-    title.textContent = sev + ' — Fixed Vulnerabilities ('+list.length+')';
-    html = '<div class="evo-summary-stat"><strong>'+list.length+'</strong> '+sev+' vulnerability(ies) were fixed</div>'
-      + '<div class="evo-drill-list" data-type="fixed_sev">'
-      + (list.length ? list.map(v => renderVulnRow(v, true)).join('') : '<div class="evo-drill-empty">No '+sev+' vulnerabilities fixed</div>')
-      + '</div>';
-  } else if (drill === 'fixed_rate') {
-    const total = comp.total_before||0;
-    const fixed = comp.fixed||0;
-    const pct = comp.pct_fixed||0;
+  const badgeMap = {fixed:'✅', new:'🆕', persistent:'🔄', score:'📊', fixed_rate:'📈'};
+  const titleMap = {fixed:comp.asset_name+' — Fixed Vulnerabilities', new:comp.asset_name+' — New Vulnerabilities', persistent:comp.asset_name+' — Persistent Vulnerabilities', score:comp.asset_name+' — Security Score Detail', fixed_rate:comp.asset_name+' — Fix Rate Detail'};
+  document.getElementById('evoModalBadge').textContent = badgeMap[drill]||'📋';
+  document.getElementById('evoModalTitle').textContent = titleMap[drill]||comp.asset_name;
+  let items = [], html = '';
+  if (drill === 'fixed') items = comp.fixed_details||[];
+  else if (drill === 'new') items = comp.new_details||[];
+  else if (drill === 'persistent') items = comp.persistent_details||[];
+  if (items.length) {
+    html = '<div class="evo-drill-list">' + items.map(v => '<div class="evo-drill-item severity-'+sevClass(v.severity)+'"><div class="evo-drill-left"><div class="evo-drill-info"><strong>'+escHtml(v.title)+'</strong><small>'+escHtml((v.description||'').substring(0,120))+'</small></div></div><div class="evo-drill-right"><span class="evo-drill-sev severity-soft-'+sevClass(v.severity)+'">'+v.severity+'</span>'+(v.cve_id?'<span class="evo-drill-cve">'+v.cve_id+'</span>':'')+(v.cvss_score?'<span class="evo-drill-cvss">CVSS '+v.cvss_score+'</span>':'')+'</div></div>').join('') + '</div>';
+  } else {
+    html = '<div class="evo-drill-empty">No ' + drill + ' vulnerabilities found</div>';
+  }
+  if (drill === 'score') {
+    const fixed = comp.fixed||0; const total = comp.total_before||1; const pct = comp.pct_fixed||0;
     html = '<div class="evo-summary-stat">Fixed <strong>'+fixed+'</strong> of <strong>'+total+'</strong> vulnerabilities (<strong>'+pct+'%</strong>)</div>'
       + '<div class="evo-side-by-side"><div class="evo-side"><div class="evo-score-table">'
       + Object.entries(comp.fixed_by_severity||{}).map(([k,v]) => '<div class="evo-score-row"><span class="evo-sev-label '+k.toLowerCase()+'">'+k+'</span><span class="evo-score-count">'+v+' fixed</span></div>').join('')
       + '</div></div></div>';
   }
-
-  // Regressions & improvements
   if ((drill === 'persistent' || drill === 'score') && (comp.regressions||[]).length) {
     html += '<div style="margin-top:16px"><strong style="color:#ef4444"><i class="fas fa-exclamation-triangle"></i> Severity regressions</strong></div>'
       + comp.regressions.map(r => '<div class="evo-drill-item"><div class="evo-drill-left"><strong>'+escHtml(r.title)+'</strong></div><div class="evo-drill-right"><span class="evo-drill-sev severity-soft-'+sevClass(r.before)+'">'+r.before+'</span> → <span class="evo-drill-sev severity-soft-'+sevClass(r.after)+'">'+r.after+'</span>'+(r.cvss_before||r.cvss_after?' <span style="font-size:11px;color:#64748b">CVSS '+(r.cvss_before||'?')+' → '+(r.cvss_after||'?')+'</span>':'')+'</div></div>').join('');
@@ -753,26 +665,24 @@ function showEvoModal(compIdx, drill) {
     html += '<div style="margin-top:16px"><strong style="color:#10b981"><i class="fas fa-check-circle"></i> Severity improvements</strong></div>'
       + comp.improvements.map(r => '<div class="evo-drill-item"><div class="evo-drill-left"><strong>'+escHtml(r.title)+'</strong></div><div class="evo-drill-right"><span class="evo-drill-sev severity-soft-'+sevClass(r.before)+'">'+r.before+'</span> → <span class="evo-drill-sev severity-soft-'+sevClass(r.after)+'">'+r.after+'</span>'+(r.cvss_before||r.cvss_after?' <span style="font-size:11px;color:#64748b">CVSS '+(r.cvss_before||'?')+' → '+(r.cvss_after||'?')+'</span>':'')+'</div></div>').join('');
   }
-
-  // Port changes
   if (drill === 'score') {
     if ((comp.ports_added_list||[]).length) html += '<div style="margin-top:16px"><strong style="color:#ef4444"><i class="fas fa-plus-circle"></i> New ports exposed</strong></div>'+comp.ports_added_list.map(p=>'<div class="evo-drill-item"><div class="evo-drill-left"><strong>Port '+p.port+'</strong><small>'+escHtml(p.service+' '+(p.product||''))+'</small></div></div>').join('');
     if ((comp.ports_removed_list||[]).length) html += '<div style="margin-top:16px"><strong style="color:#10b981"><i class="fas fa-minus-circle"></i> Ports closed</strong></div>'+comp.ports_removed_list.map(p=>'<div class="evo-drill-item"><div class="evo-drill-left"><strong>Port '+p.port+'</strong><small>'+escHtml(p.service+' '+(p.product||''))+'</small></div></div>').join('');
   }
-
-  // AI section on score-related views
   if (drill === 'score' || drill === 'fixed_rate') {
     html += '<div class="evo-drill-ai"><i class="fas fa-robot" style="color:#7c3aed"></i> '+escHtml(comp.ai_summary||'No AI summary available')+'</div>';
   }
-
   html += '<div class="evo-modal-footer"><span>'+comp.asset_name+' &middot; '+comp.scan_a_date+' → '+comp.scan_b_date+'</span></div>';
-  body.innerHTML = html;
+  document.getElementById('evoModalBody').innerHTML = html;
+  overlay.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
   document.getElementById('evoSearch').focus();
 }
 
 function closeEvoModal(e) {
   if (e && e.target !== e.currentTarget) return;
-  document.getElementById('evoModalOverlay').style.display = 'none';
+  const el = document.getElementById('evoModalOverlay');
+  if (el) el.style.display = 'none';
   document.body.style.overflow = '';
 }
 
@@ -791,16 +701,13 @@ document.addEventListener('click', function(e) {
       showEvoModal(parseInt(grid.dataset.compIdx), stat.dataset.drill);
     }
   }
-  const sevRow = e.target.closest('.clickable-sev');
-  if (sevRow) {
-    document.getElementById('evoModal').dataset.sev = sevRow.dataset.sev;
-    showEvoModal(parseInt(sevRow.dataset.compIdx), 'fixed_severity');
-  }
 });
 
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') closeEvoModal();
 });
+}
+
 </script>
 
 <style>

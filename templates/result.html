@@ -181,6 +181,9 @@
 
             {% elif scan_type == "security" and results is mapping %}
                 {% set risk_class = (results.risk_class or results.risk_level or "info")|lower %}
+                {% set system_profile = results.get("system_profile", {}) %}
+                {% set summary = results.get("summary", {}) %}
+                {% set ai_data = results.get("ai", {}) %}
 
                <section class="result-hero-card">
 
@@ -204,7 +207,7 @@
 
             <div class="hero-os-image">
 
-                {% set system_name = (results.system_profile.name or "")|lower %}
+                {% set system_name = (system_profile.get("name") or "")|lower %}
 
                 {% if "windows" in system_name %}
                     <img src="{{ url_for('static', filename='images/windows.png') }}" alt="Windows">
@@ -281,11 +284,12 @@
             </span>
             {% endif %}
 
-            {% if results.authentication %}
+            {% set auth_data = results.get("authentication") %}
+            {% if auth_data %}
             <span class="hero-meta-tag auth-ok">
                 <i class="fas fa-key"></i>
-                {{ results.authentication.type_label }}
-                {{ results.authentication.status }}
+                {{ auth_data.get("type_label", "Credentials") }}
+                {{ auth_data.get("status", "") }}
             </span>
             {% endif %}
 
@@ -394,9 +398,9 @@
                             <i class="fas fa-globe"></i>
                         </div>
                         <div class="metric-h-body">
-                            <strong>{{ results.summary.open_ports }}</strong>
+                            <strong>{{ summary.get("open_ports", 0) }}</strong>
                             <span>Open Ports</span>
-                            <small>{{ "Active ports found" if results.summary.open_ports else "No active ports" }}</small>
+                            <small>{{ "Active ports found" if summary.get("open_ports") else "No active ports" }}</small>
                         </div>
                     </article>
 
@@ -405,9 +409,9 @@
                             <i class="fas fa-shield-halved"></i>
                         </div>
                         <div class="metric-h-body">
-                            <strong>{{ results.summary.vulnerabilities }}</strong>
+                            <strong>{{ summary.get("vulnerabilities", 0) }}</strong>
                             <span>Vulnerabilities</span>
-                            <small>{{ "CVE matches found" if results.summary.vulnerabilities else "No CVEs found" }}</small>
+                            <small>{{ "CVE matches found" if summary.get("vulnerabilities") else "No CVEs found" }}</small>
                         </div>
                     </article>
 
@@ -416,9 +420,9 @@
                             <i class="fas fa-link"></i>
                         </div>
                         <div class="metric-h-body">
-                            <strong>{{ results.summary.web_paths }}</strong>
+                            <strong>{{ summary.get("web_paths", 0) }}</strong>
                             <span>Web Paths</span>
-                            <small>{{ "Interesting paths found" if results.summary.web_paths else "No interesting paths" }}</small>
+                            <small>{{ "Interesting paths found" if summary.get("web_paths") else "No interesting paths" }}</small>
                         </div>
                     </article>
 
@@ -427,9 +431,9 @@
                             <i class="fas fa-arrows-rotate"></i>
                         </div>
                         <div class="metric-h-body">
-                            <strong>{{ results.summary.missing_updates }}</strong>
+                            <strong>{{ summary.get("missing_updates", 0) }}</strong>
                             <span>Missing Updates</span>
-                            <small>{{ "Updates need review" if results.summary.missing_updates else "All up to date" }}</small>
+                            <small>{{ "Updates need review" if summary.get("missing_updates") else "All up to date" }}</small>
                         </div>
                     </article>
 
@@ -438,7 +442,7 @@
                             <i class="fas fa-clipboard-list"></i>
                         </div>
                         <div class="metric-h-body">
-                            <strong>{{ results.summary.scanned_items|default(results.summary.findings) }}</strong>
+                            <strong>{{ summary.get("scanned_items") or summary.get("findings", 0) }}</strong>
                             <span>Scanned Items</span>
                             <small>Total items scanned</small>
                         </div>
@@ -449,7 +453,7 @@
 
 
                 {# ── AI ANALYSIS ── #}
-                {% if results.ai %}
+                {% if ai_data %}
                     <section id="ai" class="panel-card ai-panel">
                         <div class="ai-panel-head">
                             <div>
@@ -458,10 +462,11 @@
                             </div>
                             <i class="fas fa-wand-magic-sparkles"></i>
                         </div>
-                        <p class="ai-summary">{{ results.ai.summary }}</p>
-                        {% if results.ai.tags %}
+                        <p class="ai-summary">{{ ai_data.get("summary", "AI analysis completed.") }}</p>
+                        {% set ai_tags = ai_data.get("tags") %}
+                        {% if ai_tags %}
                             <div class="ai-tag-row">
-                                {% for tag in results.ai.tags %}
+                                {% for tag in ai_tags %}
                                     <span>{{ tag.tag }} <b>{{ tag.count }}</b></span>
                                 {% endfor %}
                             </div>
@@ -481,7 +486,8 @@
     </button>
 </div>
                                 <div class="ai-suggestions">
-                                    {% for question in results.ai.suggested_questions %}
+                                    {% set ai_questions = ai_data.get("suggested_questions", []) %}
+                                    {% for question in ai_questions %}
                                         <button type="button" data-question="{{ question }}">{{ question }}</button>
                                     {% endfor %}
                                 </div>
@@ -508,19 +514,20 @@
                             <h3>Scan Inventory</h3>
                         </div>
                         <dl class="inventory-list">
-                            <div><dt>System</dt><dd>{{ results.system_profile.name }}</dd></div>
-                            <div><dt>OS Family</dt><dd>{{ results.system_profile.family }}</dd></div>
-                            <div><dt>Confidence</dt><dd class="text-medium">{{ results.system_profile.confidence }}</dd></div>
+                            <div><dt>System</dt><dd>{{ system_profile.get("name", "Unknown") }}</dd></div>
+                            <div><dt>OS Family</dt><dd>{{ system_profile.get("family", "Unknown") }}</dd></div>
+                            <div><dt>Confidence</dt><dd class="text-medium">{{ system_profile.get("confidence", "Low") }}</dd></div>
                         </dl>
                         <div class="inventory-stats">
-                            <span><i class="fas fa-server"></i> Services <b>{{ results.summary.services }}</b></span>
-                            <span><i class="fas fa-bug"></i> CVEs <b>{{ results.summary.cves }}</b></span>
-                            <span><i class="fas fa-globe"></i> Web Findings <b>{{ results.summary.web_findings }}</b></span>
-                            <span><i class="fas fa-list-check"></i> Total Findings <b>{{ results.summary.findings }}</b></span>
+                            <span><i class="fas fa-server"></i> Services <b>{{ summary.get("services", 0) }}</b></span>
+                            <span><i class="fas fa-bug"></i> CVEs <b>{{ summary.get("cves", 0) }}</b></span>
+                            <span><i class="fas fa-globe"></i> Web Findings <b>{{ summary.get("web_findings", 0) }}</b></span>
+                            <span><i class="fas fa-list-check"></i> Total Findings <b>{{ summary.get("findings", 0) }}</b></span>
                         </div>
-                        {% if results.system_profile.evidence %}
+                        {% set sp_evidence = system_profile.get("evidence") %}
+                        {% if sp_evidence %}
                             <div class="evidence-list">
-                                {% for evidence in results.system_profile.evidence %}
+                                {% for evidence in sp_evidence %}
                                     <span><i class="fas fa-circle-check"></i>{{ evidence }}</span>
                                 {% endfor %}
                             </div>
@@ -554,7 +561,7 @@
                             {% for item in results.scanned_items %}
                                 <details class="detail-row">
                                     <summary>
-                                        <span class="severity-tag severity-soft-{{ item.severity|lower }}">{{ item.severity }}</span>
+                                        <span class="severity-tag severity-soft-{{ (item.severity or "INFO")|lower }}">{{ item.severity or "INFO" }}</span>
                                         <b>{{ item.title }}</b>
                                         <small>{{ item.category }}{% if item.subtitle %} - {{ item.subtitle }}{% endif %}</small>
                                         <span class="detail-link">Details <i class="fas fa-chevron-right"></i></span>
@@ -605,8 +612,8 @@
                                             <div class="details-list">
                                                 {% for cve in item.cves %}
                                                     <div class="detail-row static-row">
-                                                        <span class="severity-tag severity-soft-{{ cve.severity|lower }}">{{ cve.severity }}</span>
-                                                        <b>{{ cve.id }}</b>
+                                                        <span class="severity-tag severity-soft-{{ (cve.severity or "INFO")|lower }}">{{ cve.severity or "INFO" }}</span>
+                                                        <b>{{ cve.id or "CVE-unknown" }}</b>
                                                         <small>{% if cve.score %}CVSS {{ cve.score }} - {% endif %}{{ cve.description }}</small>
                                                     </div>
                                                 {% endfor %}
@@ -629,7 +636,8 @@
                     {% endif %}
                 </section>
 
-                {% if results.authentication %}
+                {% set auth = results.get("authentication") %}
+                {% if auth %}
 <section class="panel-card auth-panel-new">
 
     <div class="panel-title">
@@ -643,7 +651,7 @@
             <i class="fas fa-circle-check"></i>
 
             <span>
-                {{ results.authentication.type_label }}
+                {{ auth.get("type_label", "Credentials") }}
             </span>
         </div>
 
@@ -651,16 +659,17 @@
             <i class="fas fa-shield"></i>
 
             <span>
-                {{ results.authentication.message }}
+                {{ auth.get("message", "No message") }}
             </span>
         </div>
 
     </div>
 
-    {% if results.authentication.checks %}
+    {% set auth_checks = auth.get("checks") %}
+    {% if auth_checks %}
     <div class="auth-check-mini-list">
 
-        {% for check in results.authentication.checks[:3] %}
+        {% for check in auth_checks[:3] %}
 
         <div class="auth-mini-item {{ check.status }}">
             <i class="fas fa-check"></i>
@@ -705,8 +714,8 @@
                         <div class="details-list">
                             {% for cve in results %}
                                 <div class="detail-row static-row">
-                                    <span class="severity-tag severity-soft-{{ cve.severity|lower }}">{{ cve.severity }}</span>
-                                    <b>{{ cve.cve }}</b>
+                                    <span class="severity-tag severity-soft-{{ (cve.severity or "INFO")|lower }}">{{ cve.severity or "INFO" }}</span>
+                                    <b>{{ cve.cve or cve.id or "CVE-unknown" }}</b>
                                     <small>{{ cve.description }}</small>
                                 </div>
                             {% endfor %}
@@ -817,7 +826,7 @@ if (aiChat) {
     const button   = document.getElementById("aiAskButton");
     const clearBtn = document.getElementById("aiClearBtn");
 
-    let conversationHistory = {{ ai_messages | tojson | safe }};
+    let conversationHistory = ({{ ai_messages | tojson | safe }}) || [];
     let isThinking = false;
 
     if (typeof marked !== "undefined") {

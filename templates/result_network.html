@@ -1,4 +1,5 @@
 {% set net = results %}
+{% set net_agg = net.get("aggregated", {}) %}
 <section class="result-hero-card">
   <div class="hero-identity">
     <div class="hero-top-row">
@@ -41,8 +42,8 @@
 {% set nc = (net.aggregated.severity_counts if net.aggregated else {}) %}
 <section class="result-metrics-vertical">
   <article class="metric-tile-v"><div class="metric-top"><div class="metric-icon-v" style="color:#4f46e5;background:#eef2ff;"><i class="fas fa-server"></i></div><div class="metric-info-v"><span>Live Hosts</span><strong>{{ net.live_count or 0 }}</strong></div></div><small>of {{ net.total_targets or 0 }} targets</small></article>
-  <article class="metric-tile-v"><div class="metric-top"><div class="metric-icon-v" style="color:#7c3aed;background:#f3e8ff;"><i class="fas fa-bug"></i></div><div class="metric-info-v"><span>Total CVEs</span><strong>{{ (net.aggregated.total_cves if net.aggregated else 0) or 0 }}</strong></div></div><small>across all hosts</small></article>
-  <article class="metric-tile-v"><div class="metric-top"><div class="metric-icon-v" style="color:#2563eb;background:#dbeafe;"><i class="fas fa-plug"></i></div><div class="metric-info-v"><span>Open Ports</span><strong>{{ (net.aggregated.total_ports if net.aggregated else 0) or 0 }}</strong></div></div><small>total discovered</small></article>
+  <article class="metric-tile-v"><div class="metric-top"><div class="metric-icon-v" style="color:#7c3aed;background:#f3e8ff;"><i class="fas fa-bug"></i></div><div class="metric-info-v"><span>Total CVEs</span><strong>{{ net_agg.get("total_cves", 0) }}</strong></div></div><small>across all hosts</small></article>
+  <article class="metric-tile-v"><div class="metric-top"><div class="metric-icon-v" style="color:#2563eb;background:#dbeafe;"><i class="fas fa-plug"></i></div><div class="metric-info-v"><span>Open Ports</span><strong>{{ net_agg.get("total_ports", 0) }}</strong></div></div><small>total discovered</small></article>
   <article class="metric-tile-v"><div class="metric-top"><div class="metric-icon-v" style="color:#059669;background:#d1fae5;"><i class="fas fa-clock"></i></div><div class="metric-info-v"><span>Duration</span><strong>{{ net.duration_seconds or "?" }}s</strong></div></div><small>scan completed</small></article>
 </section>
 

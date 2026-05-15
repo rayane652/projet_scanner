@@ -697,7 +697,7 @@ class NVDClient:
         if cached:
             return cached
 
-        data = self._request({"cveIds": cve_id, "noRejected": ""})
+        data = self._request({"cveId": cve_id, "noRejected": ""})
         if not data:
             return self._cache.get_cve(cve_id, allow_expired=True)
 

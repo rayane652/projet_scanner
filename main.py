@@ -105,6 +105,17 @@ def ensure_scans_table():
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ai_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scan_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+        """
+    )
     columns = {
         row[1]
         for row in cursor.execute("PRAGMA table_info(scans)").fetchall()
@@ -456,46 +467,53 @@ def summarize_scan_payload(payload):
         "vulnerabilities": 0,
     }
 
-    if isinstance(payload, list):
-        for item in payload:
-            if not isinstance(item, dict):
-                continue
-            for cve in item.get("cves") or [item]:
-                if not isinstance(cve, dict):
-                    continue
-                severity = str(cve.get("severity") or "").lower()
-                if severity in summary["severity_counts"]:
-                    summary["severity_counts"][severity] += 1
-        summary["findings"] = sum(summary["severity_counts"].values())
-        summary["vulnerabilities"] = summary["findings"]
-        summary["open_ports"] = len([item for item in payload if isinstance(item, dict) and item.get("port")])
-    elif not isinstance(payload, dict) or payload.get("error"):
+    if not isinstance(payload, (dict, list)):
         return summary
-    else:
-        counts = payload.get("severity_counts") or {}
-        summary["severity_counts"] = normalize_counts(counts)
 
-        for finding in payload.get("findings") or []:
-            if not isinstance(finding, dict):
-                continue
-            severity = str(finding.get("severity") or "").lower()
-            if severity in summary["severity_counts"] and not counts:
-                summary["severity_counts"][severity] += 1
+    try:
+        if isinstance(payload, list):
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                for cve in item.get("cves") or [item]:
+                    if not isinstance(cve, dict):
+                        continue
+                    severity = str(cve.get("severity") or "").lower()
+                    if severity in summary["severity_counts"]:
+                        summary["severity_counts"][severity] += 1
+            summary["findings"] = sum(summary["severity_counts"].values())
+            summary["vulnerabilities"] = summary["findings"]
+            summary["open_ports"] = len([item for item in payload if isinstance(item, dict) and item.get("port")])
+        elif payload.get("error"):
+            return summary
+        else:
+            counts = payload.get("severity_counts") or {}
+            summary["severity_counts"] = normalize_counts(counts)
 
-        summary["risk_score"] = _to_int(payload.get("risk_score"))
-        payload_summary = payload.get("summary") or {}
-        if not isinstance(payload_summary, dict):
-            payload_summary = {}
-        summary["findings"] = _to_int(
-            payload_summary.get("findings")
-            or payload_summary.get("scanned_items")
-            or sum(summary["severity_counts"].values())
-        )
-        summary["open_ports"] = _to_int(payload_summary.get("open_ports"))
-        summary["vulnerabilities"] = _to_int(
-            payload_summary.get("vulnerabilities")
-            or sum(summary["severity_counts"].values())
-        )
+            for finding in payload.get("findings") or []:
+                if not isinstance(finding, dict):
+                    continue
+                severity = str(finding.get("severity") or "").lower()
+                if severity in summary["severity_counts"] and not counts:
+                    summary["severity_counts"][severity] += 1
+
+            summary["risk_score"] = _to_int(payload.get("risk_score"))
+            payload_summary = payload.get("summary") or {}
+            if not isinstance(payload_summary, dict):
+                payload_summary = {}
+            summary["findings"] = _to_int(
+                payload_summary.get("findings")
+                or payload_summary.get("scanned_items")
+                or sum(summary["severity_counts"].values())
+            )
+            summary["open_ports"] = _to_int(payload_summary.get("open_ports"))
+            summary["vulnerabilities"] = _to_int(
+                payload_summary.get("vulnerabilities")
+                or len(payload.get("vulnerabilities", []))
+                or sum(summary["severity_counts"].values())
+            )
+    except Exception:
+        return summary
 
     if not summary["risk_score"]:
         summary["risk_score"] = min(
@@ -511,7 +529,16 @@ def summarize_scan_payload(payload):
 
 
 def decorate_result_payload(payload):
-    if not isinstance(payload, dict) or payload.get("error"):
+    if not isinstance(payload, dict):
+        return payload
+
+    if payload.get("error"):
+        payload.setdefault("risk_score", 0)
+        payload.setdefault("risk_level", "LOW")
+        payload.setdefault("risk_class", "low")
+        payload.setdefault("severity_counts", _empty_severity_counts())
+        payload.setdefault("severity_breakdown", build_severity_breakdown(_empty_severity_counts()))
+        payload.setdefault("severity_ring_style", "conic-gradient(#22c55e 0% 100%)")
         return payload
 
     if payload.get("type") == "network":
@@ -524,16 +551,25 @@ def decorate_result_payload(payload):
         payload["severity_ring_style"] = build_severity_ring_style(nc)
         return payload
 
-    summary = summarize_scan_payload(payload)
-    payload["risk_score"] = max(0, min(100, _to_int(summary["risk_score"])))
-    payload["risk_level"] = summary["risk_level"]
-    payload["risk_class"] = summary["risk_class"]
-    payload["severity_counts"] = summary["severity_counts"]
-    payload["severity_breakdown"] = build_severity_breakdown(
-        summary["severity_counts"],
-        include_info=True,
-    )
-    payload["severity_ring_style"] = build_severity_ring_style(summary["severity_counts"])
+    try:
+        summary = summarize_scan_payload(payload)
+        payload["risk_score"] = max(0, min(100, _to_int(summary["risk_score"])))
+        payload["risk_level"] = summary["risk_level"]
+        payload["risk_class"] = summary["risk_class"]
+        payload["severity_counts"] = summary["severity_counts"]
+        payload["severity_breakdown"] = build_severity_breakdown(
+            summary["severity_counts"],
+            include_info=True,
+        )
+        payload["severity_ring_style"] = build_severity_ring_style(summary["severity_counts"])
+    except Exception:
+        payload.setdefault("risk_score", 0)
+        payload.setdefault("risk_level", "LOW")
+        payload.setdefault("risk_class", "low")
+        payload.setdefault("severity_counts", _empty_severity_counts())
+        payload.setdefault("severity_breakdown", build_severity_breakdown(_empty_severity_counts()))
+        payload.setdefault("severity_ring_style", "conic-gradient(#22c55e 0% 100%)")
+
     return payload
 
 
@@ -595,73 +631,81 @@ def infer_online_status(scan, payload):
 
 
 def extract_os_badge(payload):
-    profile = payload.get("system_profile") if isinstance(payload, dict) else {}
-    profile = profile if isinstance(profile, dict) else {}
-    family = profile.get("family") or ""
-    name = profile.get("name") or ""
-    text_parts = [family, name]
-    detected_ports = set()
+    if not isinstance(payload, (dict, list)):
+        return {"label": "Unknown", "class": "unknown", "icon": "fa-solid fa-circle-question"}
 
-    if isinstance(payload, dict):
-        raw = payload.get("raw") or {}
-        ports = raw.get("ports") if isinstance(raw, dict) else []
-        if isinstance(ports, list):
-            detected_ports.update(
-                port.get("port") for port in ports if isinstance(port, dict)
-            )
-            text_parts.extend(str(port.get("banner") or "") for port in ports if isinstance(port, dict))
-            text_parts.extend(str(port.get("service") or "") for port in ports if isinstance(port, dict))
-        raw_web = raw.get("web") if isinstance(raw, dict) else {}
-        if isinstance(raw_web, dict):
-            techs = raw_web.get("technologies") or []
-            tech_str = " ".join(
-                t.get("name", str(t)) if isinstance(t, dict) else str(t)
-                for t in (techs if isinstance(techs, list) else [])
-            )
+    try:
+        profile = payload.get("system_profile") if isinstance(payload, dict) else {}
+        profile = profile if isinstance(profile, dict) else {}
+        family = profile.get("family") or ""
+        name = profile.get("name") or ""
+        text_parts = [family, name]
+        detected_ports = set()
+
+        if isinstance(payload, dict):
+            raw = payload.get("raw") or {}
+            ports = raw.get("ports") if isinstance(raw, dict) else []
+            if isinstance(ports, list):
+                detected_ports.update(
+                    port.get("port") for port in ports if isinstance(port, dict)
+                )
+                text_parts.extend(str(port.get("banner") or "") for port in ports if isinstance(port, dict))
+                text_parts.extend(str(port.get("service") or "") for port in ports if isinstance(port, dict))
+            raw_web = raw.get("web") if isinstance(raw, dict) else {}
+            if isinstance(raw_web, dict):
+                techs = raw_web.get("technologies") or []
+                tech_str = " ".join(
+                    t.get("name", str(t)) if isinstance(t, dict) else str(t)
+                    for t in (techs if isinstance(techs, list) else [])
+                )
+                text_parts.extend([
+                    str(raw_web.get("server") or ""),
+                    str(raw_web.get("powered_by") or ""),
+                    tech_str,
+                ])
+            payload_techs = payload.get("technologies") or []
             text_parts.extend([
-                str(raw_web.get("server") or ""),
-                str(raw_web.get("powered_by") or ""),
-                tech_str,
+                str(payload.get("server") or ""),
+                " ".join(
+                    t.get("name", str(t)) if isinstance(t, dict) else str(t)
+                    for t in (payload_techs if isinstance(payload_techs, list) else [])
+                ),
             ])
-        payload_techs = payload.get("technologies") or []
-        text_parts.extend([
-            str(payload.get("server") or ""),
-            " ".join(
-                t.get("name", str(t)) if isinstance(t, dict) else str(t)
-                for t in (payload_techs if isinstance(payload_techs, list) else [])
-            ),
-        ])
-    elif isinstance(payload, list):
-        detected_ports.update(
-            item.get("port") for item in payload if isinstance(item, dict)
-        )
-        text_parts.extend(str(item.get("banner") or "") for item in payload if isinstance(item, dict))
-        text_parts.extend(str(item.get("service") or "") for item in payload if isinstance(item, dict))
+        elif isinstance(payload, list):
+            detected_ports.update(
+                item.get("port") for item in payload if isinstance(item, dict)
+            )
+            text_parts.extend(str(item.get("banner") or "") for item in payload if isinstance(item, dict))
+            text_parts.extend(str(item.get("service") or "") for item in payload if isinstance(item, dict))
 
-    combined = " ".join(text_parts).lower()
-    detected_ports.discard(None)
+        combined = " ".join(text_parts).lower()
+        detected_ports.discard(None)
 
-    if 5555 in detected_ports:
-        return {"label": "Android", "class": "android", "icon": "fa-brands fa-android"}
-    if {135, 139, 445, 3389, 5985, 5986} & detected_ports:
-        return {"label": "Windows", "class": "windows", "icon": "fa-brands fa-windows"}
-    if "windows" in combined or "microsoft" in combined or "rdp" in combined or "smb" in combined:
-        return {"label": "Windows", "class": "windows", "icon": "fa-brands fa-windows"}
-    if "android" in combined or "adb" in combined:
-        return {"label": "Android", "class": "android", "icon": "fa-brands fa-android"}
-    if "ubuntu" in combined:
-        return {"label": "Ubuntu", "class": "linux", "icon": "fa-brands fa-linux"}
-    if "debian" in combined:
-        return {"label": "Debian", "class": "linux", "icon": "fa-brands fa-linux"}
-    if "kali" in combined:
-        return {"label": "Kali", "class": "linux", "icon": "fa-brands fa-linux"}
-    if "metasploitable" in combined:
-        return {"label": "Metasploitable", "class": "linux", "icon": "fa-brands fa-linux"}
-    if "linux" in combined or "unix" in combined or "openssh" in combined or "ssh" in combined:
-        return {"label": "Linux", "class": "linux", "icon": "fa-brands fa-linux"}
-    if {21, 22, 25, 111, 2049, 5432, 6379} & detected_ports:
-        return {"label": "Linux", "class": "linux", "icon": "fa-brands fa-linux"}
-    return {"label": "Unknown", "class": "unknown", "icon": "fa-solid fa-circle-question"}
+        if 5555 in detected_ports:
+            return {"label": "Android", "class": "android", "icon": "fa-brands fa-android"}
+        if {135, 139, 445, 3389, 5985, 5986} & detected_ports:
+            return {"label": "Windows", "class": "windows", "icon": "fa-brands fa-windows"}
+        if "windows" in combined or "microsoft" in combined or "rdp" in combined or "smb" in combined:
+            return {"label": "Windows", "class": "windows", "icon": "fa-brands fa-windows"}
+        if "android" in combined or "adb" in combined:
+            return {"label": "Android", "class": "android", "icon": "fa-brands fa-android"}
+        if "ubuntu" in combined:
+            return {"label": "Ubuntu", "class": "linux", "icon": "fa-brands fa-linux"}
+        if "debian" in combined:
+            return {"label": "Debian", "class": "linux", "icon": "fa-brands fa-linux"}
+        if "kali" in combined:
+            return {"label": "Kali", "class": "linux", "icon": "fa-brands fa-linux"}
+        if "centos" in combined:
+            return {"label": "CentOS", "class": "linux", "icon": "fa-brands fa-linux"}
+        if "metasploitable" in combined:
+            return {"label": "Metasploitable", "class": "linux", "icon": "fa-brands fa-linux"}
+        if "linux" in combined or "unix" in combined or "openssh" in combined or "ssh" in combined:
+            return {"label": "Linux", "class": "linux", "icon": "fa-brands fa-linux"}
+        if {21, 22, 25, 111, 2049, 5432, 6379} & detected_ports:
+            return {"label": "Linux", "class": "linux", "icon": "fa-brands fa-linux"}
+        return {"label": "Unknown", "class": "unknown", "icon": "fa-solid fa-circle-question"}
+    except Exception:
+        return {"label": "Unknown", "class": "unknown", "icon": "fa-solid fa-circle-question"}
 
 
 def decorate_asset(asset):
@@ -841,9 +885,13 @@ def build_dashboard_data(user_email):
  
     completion_rate = int((done_scans / total_scans) * 100) if total_scans else 0
 
-    from modules.scan_comparator import build_comparisons_for_user
-    scan_comparisons = build_comparisons_for_user(scans, lambda sid: fetch_scan(sid, user_email))
-  
+    scan_comparisons = []
+    try:
+        from modules.scan_comparator import build_comparisons_for_user
+        scan_comparisons = build_comparisons_for_user(scans, lambda sid: fetch_scan(sid, user_email))
+    except Exception:
+        scan_comparisons = []
+
     return {
         "total_scans": total_scans,
         "running_scans": running_scans,
@@ -1092,10 +1140,13 @@ def result():
 
         if selected_scan.get("result_json"):
             try:
-                result_payload = json.loads(selected_scan["result_json"])
-                result_payload = decorate_result_payload(result_payload)
-            except:
-                result_payload = None
+                parsed = json.loads(selected_scan["result_json"])
+                if isinstance(parsed, dict) or isinstance(parsed, list):
+                    result_payload = decorate_result_payload(parsed)
+                else:
+                    result_payload = {"target": target, "error": "Invalid scan result format"}
+            except Exception:
+                result_payload = {"target": target, "error": "Scan result data is corrupted or unreadable"}
 
     findings = (result_payload or {}).get("findings", [])
         # ───────── LOAD AI CHAT HISTORY ─────────
@@ -1103,22 +1154,21 @@ def result():
     ai_messages = []
 
     if selected_scan:
-
-        conn = get_db_connection()
-
-        rows = conn.execute(
-            """
-            SELECT role, content
-            FROM ai_messages
-            WHERE scan_id = ?
-            ORDER BY id ASC
-            """,
-            (selected_scan["id"],)
-        ).fetchall()
-
-        conn.close()
-
-        ai_messages = [dict(row) for row in rows]
+        try:
+            conn = get_db_connection()
+            rows = conn.execute(
+                """
+                SELECT role, content
+                FROM ai_messages
+                WHERE scan_id = ?
+                ORDER BY id ASC
+                """,
+                (selected_scan["id"],)
+            ).fetchall()
+            conn.close()
+            ai_messages = [dict(row) for row in rows]
+        except Exception:
+            ai_messages = []
 
     return render_template(
         "result.html",
