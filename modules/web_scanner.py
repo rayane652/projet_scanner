@@ -1,11 +1,14 @@
 import re
 import socket
 import ssl
+import datetime
 from urllib.parse import urljoin, urlparse, urldefrag
 
 import requests
 from modules.nvd_client import nvd_client, epss_client
 from modules.ai_remediation import generate_remediation
+from modules.service_detector import detect_web_technologies
+from modules.utils import grab_banner_tls
 
 SECURITY_HEADERS = {
     "Strict-Transport-Security": {"desc": "Enforces HTTPS — prevents SSL-stripping", "severity": "MEDIUM", "cwe": "CWE-319", "owasp": "M0951"},
@@ -29,7 +32,26 @@ INTERESTING_PATHS = [
     "/.aws/credentials", "/.azure/config",
     "/package.json", "/.npmrc", "/.ssh/id_rsa.pub",
     "/test/", "/dev/", "/staging/",
+    "/manager/", "/manager/html", "/admin-console",
+    "/webadmin/", "/cpanel/", "/wp-login.php",
+    "/administrator/", "/panel/", "/jenkins/",
+    "/zabbix/", "/grafana/", "/prometheus/",
+    "/kibana/", "/sonar/", "/nexus/",
+    "/phpMyAdmin/", "/phpmyadmin/", "/pma/",
+    "/sql/", "/mysql/", "/db/",
 ]
+
+ADMIN_PATHS = [
+    "/admin/", "/admin", "/wp-admin/", "/administrator/",
+    "/manager/", "/manager/html", "/admin-console/",
+    "/webadmin/", "/cpanel/", "/wp-login.php",
+    "/panel/", "/jenkins/", "/zabbix/",
+    "/grafana/", "/kibana/", "/console/",
+    "/actuator/", "/swagger-ui/", "/api-docs/",
+    "/phpMyAdmin/", "/phpmyadmin/", "/pma/",
+    "/adminer/", "/adminer.php",
+]
+
 TECH_KEYWORDS = {
     "wordpress": "WordPress", "wp-content": "WordPress", "wp-json": "WordPress",
     "jquery": "jQuery", "vue.js": "Vue.js", "vuejs": "Vue.js",
@@ -54,6 +76,12 @@ TECH_KEYWORDS = {
     "fastly": "Fastly", "cloudfront": "CloudFront",
     "swagger": "Swagger", "graphql": "GraphQL",
     "websocket": "WebSocket", "sse": "Server-Sent Events",
+    "node.js": "Node.js", "node_modules": "Node.js",
+    "php": "PHP", "phpmyadmin": "phpMyAdmin",
+    "adminer": "Adminer", "caddy": "Caddy",
+    "haproxy": "HAProxy", "varnish": "Varnish",
+    "jboss": "JBoss", "weblogic": "WebLogic",
+    "sharepoint": "SharePoint",
 }
 
 OWASP_MAP = {
@@ -70,6 +98,12 @@ OWASP_MAP = {
 }
 
 SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+
+WEAK_TLS_VERSIONS = {"TLSv1", "TLSv1.1", "SSLv3", "SSLv2", "SSLv2.0", "SSLv3.0"}
+WEAK_CIPHERS = {
+    "rc4", "des", "3des", "md5", "export", "null", "anon", "ade_",
+    "idea", "seed", "camellia", "rc2",
+}
 
 
 def normalize_url(target):
@@ -110,9 +144,6 @@ def _extract_meta(html):
     return metas
 
 
-# ═══ CHECKERS ═══
-
-
 def _find_security_headers(headers, is_https):
     findings, present, missing = [], [], []
     for hdr, info in SECURITY_HEADERS.items():
@@ -123,7 +154,7 @@ def _find_security_headers(headers, is_https):
             present.append(hdr)
             if hdr == "Content-Security-Policy":
                 if "'unsafe-inline'" in val or "'unsafe-eval'" in val:
-                    findings.append({"severity": "MEDIUM", "name": "CSP allows unsafe-inline/eval", "detail": f"CSP header contains unsafe directives that weaken XSS protection", "cwe": "CWE-1021", "owasp": "A05", "header": hdr, "value": val})
+                    findings.append({"severity": "MEDIUM", "name": "CSP allows unsafe-inline/eval", "detail": "CSP header contains unsafe directives that weaken XSS protection", "cwe": "CWE-1021", "owasp": "A05", "header": hdr, "value": val})
                 if "default-src 'none'" in val.lower():
                     findings.append({"severity": "LOW", "name": "CSP default-src set to 'none'", "detail": "Review CSP to ensure intended resources are not blocked", "cwe": "CWE-1021", "owasp": "A05", "header": hdr, "value": val})
             if hdr == "Strict-Transport-Security":
@@ -149,7 +180,6 @@ def _check_cookies(response):
         flags = {k.lower() for k in cookie._rest.keys()}
         ci = {"name": cookie.name, "secure": bool(cookie.secure), "httponly": "httponly" in flags, "samesite": cookie._rest.get("SameSite", "").lower() if hasattr(cookie, "_rest") else "", "domain": cookie.domain, "path": cookie.path}
         cookies.append(ci)
-
         if not cookie.secure:
             findings.append({"severity": "HIGH", "name": f"Insecure cookie: {cookie.name} (no Secure flag)", "detail": "Cookie can be transmitted over plain HTTP — session hijacking risk", "cwe": "CWE-614", "owasp": "A02", "cookie": cookie.name})
         if not ci["httponly"]:
@@ -168,6 +198,7 @@ def _check_paths(base_url, session, html):
     checks = []
     found_robots_rules = []
     found_sitemap_urls = []
+    exposed_admin_panels = []
 
     for path in INTERESTING_PATHS:
         url = urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
@@ -177,6 +208,8 @@ def _check_paths(base_url, session, html):
             continue
         if r.status_code in (200, 401, 403, 301, 302):
             checks.append({"path": path, "status": r.status_code, "note": "Interesting endpoint detected"})
+            if path in ADMIN_PATHS:
+                exposed_admin_panels.append({"path": path, "status": r.status_code})
             if path == "/robots.txt" and r.status_code == 200:
                 for line in r.text.splitlines():
                     if line.lower().startswith(("allow:", "disallow:", "sitemap:")):
@@ -185,7 +218,7 @@ def _check_paths(base_url, session, html):
             for m in re.finditer(r'<loc>(.*?)</loc>', r.text, re.IGNORECASE):
                 found_sitemap_urls.append(m.group(1))
 
-    return checks, found_robots_rules, found_sitemap_urls
+    return checks, found_robots_rules, found_sitemap_urls, exposed_admin_panels
 
 
 def _check_forms(html, base_url):
@@ -197,7 +230,7 @@ def _check_forms(html, base_url):
         fi = {"method": method.upper(), "action": action}
         forms.append(fi)
         if method.upper() == "GET":
-            findings.append({"severity": "LOW", "name": "Form uses GET method", "detail": f"Form submits via GET — sensitive data may appear in URL logs", "cwe": "CWE-598", "owasp": "A02", "form": fi})
+            findings.append({"severity": "LOW", "name": "Form uses GET method", "detail": "Form submits via GET — sensitive data may appear in URL logs", "cwe": "CWE-598", "owasp": "A02", "form": fi})
         inputs = re.findall(r'<input\b[^>]*type=["\']?password["\']?', attrs + html[m.end():m.end()+500], re.IGNORECASE)
         if inputs:
             findings.append({"severity": "MEDIUM", "name": "Form with password field (no CSRF token check)", "detail": "Login forms without CSRF tokens are vulnerable to cross-site request forgery", "cwe": "CWE-352", "owasp": "A01", "form": fi})
@@ -212,42 +245,7 @@ def _check_forms(html, base_url):
 
 
 def _fingerprint_tech(headers, html, cookies):
-    tech = []
-    seen = set()
-    server = (headers.get("Server") or "").lower()
-    powered = (headers.get("X-Powered-By") or "").lower()
-    html_lower = html.lower()
-    set_cookie = str(headers.get("Set-Cookie", "")).lower()
-    combined = f"{server} {powered} {html_lower} {set_cookie} {' '.join(c.name.lower() for c in (cookies or []))}"
-
-    for keyword, label in TECH_KEYWORDS.items():
-        if keyword in combined and label not in seen:
-            tech.append({"name": label, "confidence": "high" if keyword in server or keyword in powered else "medium", "evidence": f"Matched keyword: {keyword}"})
-            seen.add(label)
-
-    if server:
-        ver = re.search(r'[\d.]+', server)
-        tech.append({"name": f"Server: {server.split('/')[0].title()}", "version": ver.group() if ver else "", "confidence": "high", "evidence": f"Server header: {server}"})
-
-    for cookie in (cookies or []):
-        if cookie.name.lower() in ("aspsessionid", ".aspxauth", "asp.net_sessionid"):
-            tech.append({"name": "ASP.NET", "confidence": "high", "evidence": f"Cookie: {cookie.name}"})
-            break
-        if cookie.name.lower() in ("phpsessid",):
-            tech.append({"name": "PHP", "confidence": "high", "evidence": f"Cookie: {cookie.name}"})
-            break
-        if cookie.name.lower() in ("jsessionid",):
-            tech.append({"name": "Java/JSP", "confidence": "high", "evidence": f"Cookie: {cookie.name}"})
-            break
-
-    if "laravel_session" in set_cookie or "laravel" in combined:
-        tech.append({"name": "Laravel", "confidence": "high", "evidence": "Laravel session cookie or fingerprint"})
-    if "symfony" in combined:
-        tech.append({"name": "Symfony", "confidence": "medium", "evidence": "Symfony fingerprint detected"})
-    if "django" in combined:
-        tech.append({"name": "Django", "confidence": "medium", "evidence": "Django fingerprint"})
-
-    return tech
+    return detect_web_technologies(headers, html, cookies)
 
 
 def _check_cors(headers):
@@ -291,39 +289,69 @@ def _check_js_files(base_url, html, session):
 
 def _check_http_methods(base_url, session):
     findings = []
-    for method in ("OPTIONS", "PUT", "DELETE", "PATCH", "TRACE"):
+    for method in ("OPTIONS", "PUT", "DELETE", "PATCH", "TRACE", "CONNECT"):
         try:
             r = session.request(method, base_url, timeout=4)
-            if r.status_code not in (405, 404, 501):
-                findings.append({"severity": f"{'HIGH' if method in ('PUT', 'DELETE', 'TRACE') else 'MEDIUM'}", "name": f"HTTP method {method} enabled", "detail": f"{method} returned {r.status_code} — potentially dangerous method allowed", "cwe": "CWE-749", "owasp": "A05", "method": method, "status": r.status_code})
+            if r.status_code not in (405, 404, 501, 400):
+                severity = "CRITICAL" if method in ("PUT", "DELETE", "CONNECT") else "HIGH" if method == "TRACE" else "MEDIUM"
+                findings.append({"severity": severity, "name": f"Dangerous HTTP method {method} enabled", "detail": f"{method} returned {r.status_code} — potentially dangerous method allowed (risk: arbitrary file upload with PUT, XST with TRACE, proxy abuse with CONNECT)", "cwe": "CWE-749", "owasp": "A05", "method": method, "status": r.status_code})
         except requests.RequestException:
             continue
     return findings
 
 
 def _check_ssl(hostname, port=443):
-    findings = {}
-    try:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        with socket.create_connection((hostname, port), timeout=5) as sock:
-            with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
-                cert = ssock.getpeercert()
-                ver = ssock.version()
-                cipher = ssock.cipher()
-                findings["tls_version"] = ver
-                findings["cipher"] = cipher[0] if cipher else ""
-                findings["cipher_bits"] = cipher[2] if cipher else 0
-                if cert:
-                    findings["issuer"] = dict(cert.get("issuer", [])).get("organizationName", "")
-                    findings["subject"] = dict(cert.get("subject", [])).get("commonName", "")
-                    findings["expiry"] = cert.get("notAfter", "")
-                if ver and ver in ("TLSv1", "TLSv1.1", "SSLv3", "SSLv2"):
-                    findings["tls_weak"] = True
-    except Exception as e:
-        findings["error"] = str(e)
-    return findings
+    result = grab_banner_tls(hostname, port)
+    if "error" in result:
+        return result
+
+    findings = []
+    recommendations = []
+
+    tls_version = result.get("tls_version", "")
+    if tls_version in WEAK_TLS_VERSIONS:
+        findings.append({"severity": "HIGH", "name": f"Weak TLS version: {tls_version}", "detail": f"Server uses {tls_version} which has known vulnerabilities. TLS 1.2 or 1.3 is required.", "cwe": "CWE-327", "owasp": "A02"})
+        recommendations.append("Upgrade to TLS 1.2 or higher. Disable all SSL and TLS 1.0/1.1.")
+
+    cipher_name = (result.get("cipher_name") or "").lower()
+    for weak in WEAK_CIPHERS:
+        if weak in cipher_name:
+            findings.append({"severity": "HIGH", "name": f"Weak cipher: {result.get('cipher_name', 'unknown')}", "detail": f"Cipher suite uses {weak.upper()} which is considered weak and should be disabled.", "cwe": "CWE-326", "owasp": "A02"})
+            recommendations.append(f"Disable weak cipher '{result.get('cipher_name', 'unknown')}'. Enable only modern AEAD ciphers (AES-GCM, ChaCha20).")
+            break
+
+    cipher_bits = result.get("cipher_bits", 0)
+    if cipher_bits and isinstance(cipher_bits, int) and cipher_bits < 128:
+        findings.append({"severity": "HIGH", "name": f"Weak cipher strength: {cipher_bits} bits", "detail": f"The negotiated cipher uses only {cipher_bits} bits, which is below the minimum of 128 bits.", "cwe": "CWE-326", "owasp": "A02"})
+        recommendations.append(f"Upgrade to ciphers with at least 128-bit encryption.")
+
+    if result.get("expired"):
+        findings.append({"severity": "CRITICAL", "name": "SSL certificate expired", "detail": f"Certificate expired on {result.get('not_after', 'unknown date')}. Expired certificates cause browser trust warnings.", "cwe": "CWE-295", "owasp": "A02"})
+        recommendations.append("Renew the SSL certificate immediately. Monitor certificate expiry dates proactively.")
+
+    if result.get("expires_soon"):
+        findings.append({"severity": "MEDIUM", "name": "SSL certificate expiring soon", "detail": f"Certificate expires in {result.get('days_left')} days on {result.get('not_after', 'unknown date')}.", "cwe": "CWE-295", "owasp": "A02"})
+        recommendations.append(f"Renew the SSL certificate within {result.get('days_left')} days. Set up automatic renewal monitoring.")
+
+    if result.get("self_signed"):
+        findings.append({"severity": "MEDIUM", "name": "Self-signed SSL certificate", "detail": "Certificate is self-signed and not trusted by browsers/clients.", "cwe": "CWE-295", "owasp": "A02"})
+        recommendations.append("Replace the self-signed certificate with one from a trusted CA (Let's Encrypt offers free certificates).")
+
+    san_list = result.get("san", [])
+    if san_list:
+        result["san_count"] = len(san_list)
+
+    result["findings"] = findings
+    result["recommendations"] = recommendations
+
+    if not findings:
+        result["status"] = "secure"
+    elif any(f.get("severity") in ("CRITICAL", "HIGH") for f in findings):
+        result["status"] = "insecure"
+    else:
+        result["status"] = "warning"
+
+    return result
 
 
 def _check_xss_indicators(html, base_url, session):
@@ -411,7 +439,10 @@ def _check_misconfigs(headers, html, base_url, session, status_code):
     dir_listing = re.search(r'<title>Index\s+of\s+/', html, re.IGNORECASE)
     if dir_listing:
         findings.append({"severity": "HIGH", "name": "Directory listing enabled", "detail": "Server returns an index listing — sensitive files may be exposed", "cwe": "CWE-548", "owasp": "A05"})
-    debug_patterns = ["debug", "trace", "test", "staging", "dev mode", "development", "application.cfm", "cfapplication"]
+    dir_listing_alt = re.search(r'<h1>Index\s+of\s+', html, re.IGNORECASE)
+    if dir_listing_alt and not dir_listing:
+        findings.append({"severity": "HIGH", "name": "Directory listing enabled", "detail": "Server returns an index listing — sensitive files may be exposed", "cwe": "CWE-548", "owasp": "A05"})
+    debug_patterns = ["debug", "trace", "test", "staging", "dev mode", "development", "application.cfm", "cfapplication", "env.", "app.env"]
     html_lower = html.lower()
     for pat in debug_patterns:
         if pat in html_lower:
@@ -432,7 +463,7 @@ def _check_misconfigs(headers, html, base_url, session, status_code):
 
 def _detect_api_endpoints(base_url, session):
     findings = []
-    api_patterns = ["/api/", "/v1/", "/v2/", "/graphql", "/rest/", "/swagger.json", "/openapi.json", "/api-docs/", "/docs/"]
+    api_patterns = ["/api/", "/v1/", "/v2/", "/graphql", "/rest/", "/swagger.json", "/openapi.json", "/api-docs/", "/docs/", "/api/v1/", "/api/v2/"]
     for path in api_patterns:
         url = urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
         try:
@@ -451,7 +482,9 @@ def _check_backup_files(base_url, session):
     backup_patterns = [
         "/backup/", "/backup.zip", "/backup.sql", "/backup.tar.gz",
         "/db_backup.sql", "/database.sql", "/dump.sql",
-        "/.bk", "/~", ".bak", ".old", ".swp", ".save", ".orig"
+        "/.bk", "/~", ".bak", ".old", ".swp", ".save", ".orig",
+        "/.env.bak", "/.env.save", "/.env.old",
+        "/config.bak", "/config.php.bak", "/config.json.bak",
     ]
     base_path = urlparse(base_url).path.rstrip("/") or ""
     for ext in backup_patterns:
@@ -505,8 +538,6 @@ def _build_owasp_mapping(findings):
     return mapping
 
 
-# ═══ MAIN ENTRY POINT ═══
-
 def scan_website(target):
     if not target:
         return {"input": target, "error": "No target provided", "findings": []}
@@ -534,24 +565,27 @@ def scan_website(target):
     cookies, cookie_findings = _check_cookies(response)
     all_findings.extend(cookie_findings)
 
-    # 3. Path discovery
-    paths, robots_rules, sitemap_urls = _check_paths(final_url, session, html)
+    # 3. Path discovery + admin panels
+    paths, robots_rules, sitemap_urls, exposed_admin_panels = _check_paths(final_url, session, html)
     all_findings.extend({"severity": "INFO", "name": f"Path discovered: {p['path']}", "detail": f"Status {p['status']} — {p['note']}", "cwe": "CWE-200", "owasp": "A01", "path": p["path"], "status": p["status"]} for p in paths)
+    for panel in exposed_admin_panels:
+        all_findings.append({"severity": "HIGH", "name": f"Exposed admin panel: {panel['path']}", "detail": f"Admin/management interface accessible at {panel['path']} (HTTP {panel['status']})", "cwe": "CWE-200", "owasp": "A01", "path": panel["path"], "status": panel["status"]})
 
     # 4. Forms
     forms, form_findings = _check_forms(html, final_url)
     all_findings.extend(form_findings)
 
-    # 5. Technology fingerprinting
+    # 5. Technology fingerprinting (using improved engine)
     tech = _fingerprint_tech(headers, html, cookies)
 
-    # 5b. CVE enrichment for detected tech products (top 3)
+    # 5b. CVE enrichment for detected tech products (top 5)
     cve_enrichment = {}
-    for t in tech[:3]:
-        product = (t.get("name") or "").replace("Server: ", "").strip().lower()
+    for t in tech[:5]:
+        product = (t.get("name") or "").strip().lower()
+        version = (t.get("version") or "").strip()
         if product and product not in ("unknown", ""):
             try:
-                cves = nvd_client.search_by_product(product, limit=5)
+                cves = nvd_client.search_by_product(product, version or None, limit=5)
                 if cves:
                     ids = [c["id"] for c in cves if c.get("id")]
                     epss = epss_client.get_scores(ids) if ids else {}
@@ -572,6 +606,8 @@ def scan_website(target):
                             "cvss_score": c.get("cvss_score"),
                             "epss": c.get("epss_score"),
                             "cve_id": c["id"],
+                            "published_date": c.get("published_date"),
+                            "affected_versions": c.get("affected_versions") or [],
                         })
             except Exception:
                 pass
@@ -588,13 +624,11 @@ def scan_website(target):
     method_findings = _check_http_methods(final_url, session)
     all_findings.extend(method_findings)
 
-    # 9. SSL/TLS
+    # 9. SSL/TLS (comprehensive)
     ssl_info = _check_ssl(parsed.hostname)
-    if ssl_info.get("tls_weak"):
-        all_findings.append({"severity": "HIGH", "name": "Weak TLS version", "detail": f"Server uses {ssl_info['tls_version']} — TLS 1.2+ required", "cwe": "CWE-327", "owasp": "A02"})
-    bits = ssl_info.get("cipher_bits")
-    if bits is not None and isinstance(bits, int) and bits < 128:
-        all_findings.append({"severity": "HIGH", "name": "Weak cipher strength", "detail": f"Cipher uses only {ssl_info['cipher_bits']} bits", "cwe": "CWE-326", "owasp": "A02"})
+    if "error" not in ssl_info:
+        ssl_findings = ssl_info.get("findings", [])
+        all_findings.extend(ssl_findings)
 
     # 10. XSS indicators
     xss_findings = _check_xss_indicators(html, final_url, session)
@@ -679,6 +713,8 @@ def scan_website(target):
         "sitemap_urls": sitemap_urls,
         "auth_mechanisms": auth_mechs,
         "ssl_info": ssl_info,
+        "ssl_security": ssl_info if "error" not in ssl_info else None,
+        "exposed_admin_panels": exposed_admin_panels,
         "owasp": owasp,
         "web_risk_score": web_score,
         "web_risk_level": web_level,
@@ -692,6 +728,7 @@ def scan_website(target):
             "js_files_analyzed": len(js_files),
             "auth_mechanisms": len(auth_mechs),
             "api_endpoints": len(api_findings),
+            "exposed_admin_panels": len(exposed_admin_panels),
         },
         "findings": legacy_findings,
         "raw_findings": all_findings,

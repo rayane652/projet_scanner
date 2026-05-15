@@ -63,6 +63,13 @@ def _tag_for_item(item):
     return tags or ["Finding"]
 
 
+def _detail_value(item, label):
+    for key, value in item.get("details") or []:
+        if str(key).lower() == label.lower():
+            return value
+    return ""
+
+
 def _explain_item(item):
     severity     = _severity(item.get("severity"))
     category     = item.get("category") or "Finding"
@@ -73,8 +80,24 @@ def _explain_item(item):
         explanation = f"{title} is reachable from the scanner. Exposed services increase the attack surface."
         impact = "An attacker may fingerprint the service, attempt brute force, or exploit known service flaws."
     elif category == "Vulnerability":
-        explanation = f"{title} matched known CVE intelligence for this target."
-        impact = "If the affected product and version are confirmed, exploitation may lead to compromise or service abuse."
+        product = _detail_value(item, "Product") or item.get("subtitle") or "the detected service"
+        version = _detail_value(item, "Version") or "the detected version"
+        published = _detail_value(item, "Published") or "unknown date"
+        affected = _detail_value(item, "Affected versions") or "affected versions listed by NVD"
+        confidence = _detail_value(item, "Match confidence") or "medium"
+        explanation = (
+            f"{title} is an NVD-backed match for {product} {version}. "
+            f"It was published on {published}; NVD affected-version data says: {affected}. "
+            f"Match confidence is {confidence} because the scanner compared the detected product/version with NVD CPE data."
+        )
+        impact = (
+            "If this version is truly installed and reachable, exploitation can give an attacker the impact described by the CVSS vector, "
+            "commonly service compromise, denial of service, information disclosure, or a foothold for deeper access."
+        )
+        recommendation = (
+            f"Upgrade {product} from {version} to the newest vendor-supported security release, "
+            "apply OS package updates, restart the service, and rescan to confirm the CVE no longer matches."
+        )
     elif category == "Missing Update":
         explanation = f"{title} indicates a component that likely needs a security update."
         impact = "Missing security patches leave the host exposed to known attacks."

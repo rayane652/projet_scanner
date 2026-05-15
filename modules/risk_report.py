@@ -1,3 +1,6 @@
+import re
+import datetime
+
 SEVERITY_ORDER = {
     "CRITICAL": 0,
     "HIGH": 1,
@@ -51,6 +54,9 @@ SENSITIVE_PORTS = {
     9200: ("HIGH", "Elasticsearch service exposed", "Restrict access and enable authentication."),
     5555: ("CRITICAL", "Android Debug Bridge exposed", "Disable ADB over network or restrict it immediately."),
     27017: ("HIGH", "MongoDB service exposed", "Restrict access and enable authentication."),
+    11211: ("HIGH", "Memcached service exposed", "Restrict access and enable authentication."),
+    6000: ("MEDIUM", "X11 service exposed", "Restrict X11 to trusted networks."),
+    6667: ("LOW", "IRC service exposed", "Restrict IRC to authorized users only."),
 }
 
 
@@ -99,14 +105,47 @@ def _risk_level_from_counts(counts):
 def _dedupe(items):
     output = []
     seen = set()
-
     for item in items:
         if item in seen:
             continue
         seen.add(item)
         output.append(item)
-
     return output
+
+
+def _cve_id(cve):
+    return cve.get("id") or cve.get("cve") or "CVE"
+
+
+def _cve_score(cve):
+    return cve.get("score") if cve.get("score") is not None else cve.get("cvss_score")
+
+
+def _cve_affected_versions(cve):
+    versions = cve.get("affected_versions") or []
+    if isinstance(versions, str):
+        versions = [versions]
+    return [str(version) for version in versions if version]
+
+
+def _cve_payload(cve, severity=None):
+    return {
+        "id": _cve_id(cve),
+        "severity": _severity(severity or cve.get("severity")),
+        "score": _cve_score(cve),
+        "description": cve.get("description") or "",
+        "published_date": cve.get("published_date") or "",
+        "affected_versions": _cve_affected_versions(cve),
+        "confidence": cve.get("confidence") or "",
+        "source": cve.get("source") or cve.get("data_source") or "",
+        "cvss_vector": cve.get("cvss_vector") or "",
+        "match_reason": cve.get("match_reason") or "",
+    }
+
+
+def _affected_label(cve):
+    versions = _cve_affected_versions(cve)
+    return ", ".join(versions[:3]) if versions else "Not specified by NVD"
 
 
 def _finding(
@@ -134,6 +173,28 @@ def _finding(
     }
 
 
+def _cvss_risk_score(cve_list):
+    if not cve_list:
+        return 0
+    max_score = 0
+    for cve in cve_list:
+        score = _cve_score(cve)
+        if score is not None:
+            try:
+                max_score = max(max_score, float(score))
+            except (ValueError, TypeError):
+                pass
+    if max_score >= 9.0:
+        return 25
+    elif max_score >= 7.0:
+        return 16
+    elif max_score >= 4.0:
+        return 8
+    elif max_score >= 0.1:
+        return 3
+    return 0
+
+
 def _port_findings(port_results):
     findings = []
 
@@ -144,6 +205,7 @@ def _port_findings(port_results):
         product = result.get("product") or service
         version = result.get("version") or ""
         banner = result.get("banner") or ""
+        confidence = result.get("product_confidence") or "low"
         asset = f"{protocol.lower()}/{service}:{port}"
 
         if port in SENSITIVE_PORTS:
@@ -162,6 +224,7 @@ def _port_findings(port_results):
                     "service": service,
                     "product": product,
                     "version": version,
+                    "confidence": confidence,
                 },
             ))
 
@@ -180,18 +243,21 @@ def _port_findings(port_results):
                     "service": service,
                     "product": product,
                     "version": version,
+                    "confidence": confidence,
                 },
             ))
 
         for cve in result.get("cves") or []:
-            cve_id = cve.get("cve") or "CVE"
+            cve_id = _cve_id(cve)
             severity = _severity(cve.get("severity"))
-            score = cve.get("score")
+            score = _cve_score(cve)
             detail = cve.get("description") or "Known vulnerability matched this service."
             product_name = f"{product} {version}".strip()
 
             if score:
                 detail = f"{detail} CVSS {score}."
+            if cve.get("published_date"):
+                detail = f"{detail} Published {cve.get('published_date')}."
 
             findings.append(_finding(
                 severity,
@@ -201,18 +267,17 @@ def _port_findings(port_results):
                 "Patch or upgrade the affected service and rescan after remediation.",
                 banner[:180],
                 "Vulnerability",
-                cves=[{
-                    "id": cve_id,
-                    "severity": severity,
-                    "score": score,
-                    "description": cve.get("description") or "",
-                }],
+                cves=[_cve_payload(cve, severity)],
                 metadata={
                     "port": port,
                     "protocol": protocol,
                     "service": service,
                     "product": product,
                     "version": version,
+                    "confidence": confidence,
+                    "published_date": cve.get("published_date") or "",
+                    "affected_versions": _cve_affected_versions(cve),
+                    "confidence": cve.get("confidence") or "",
                 },
             ))
 
@@ -244,9 +309,7 @@ def _web_findings(web_result):
             detail,
             recommendation,
             category="Web Hardening",
-            metadata={
-                "url": final_url,
-            },
+            metadata={"url": final_url},
         ))
 
     for path in web_result.get("interesting_paths") or []:
@@ -257,11 +320,57 @@ def _web_findings(web_result):
             f"{path.get('path')} returned HTTP {path.get('status')}.",
             "Review the endpoint and ensure it does not expose sensitive information.",
             category="Web Path",
-            metadata={
-                "path": path.get("path"),
-                "status": path.get("status"),
-                "url": final_url,
-            },
+            metadata={"path": path.get("path"), "status": path.get("status"), "url": final_url},
+        ))
+
+    return findings
+
+
+def _web_technology_findings(web_result, target):
+    findings = []
+    if not web_result or web_result.get("error"):
+        return findings
+
+    technologies = web_result.get("technologies") or []
+    for tech in technologies:
+        name = tech.get("name", "Unknown")
+        confidence = tech.get("confidence", "low")
+        evidence = tech.get("evidence", "")
+        findings.append(_finding(
+            "INFO",
+            f"Web technology detected: {name}",
+            target,
+            f"Detected {name} with {confidence} confidence. {evidence}",
+            "Keep the technology up to date and monitor for CVEs.",
+            evidence,
+            "Technology Stack",
+            metadata={"technology": name, "confidence": confidence},
+        ))
+
+    ssl_info = web_result.get("ssl_info") or {}
+    if "error" not in ssl_info:
+        for ssl_finding in ssl_info.get("findings", []):
+            findings.append(_finding(
+                ssl_finding.get("severity", "HIGH"),
+                ssl_finding.get("name", "SSL/TLS issue"),
+                target,
+                ssl_finding.get("detail", ""),
+                ssl_info.get("recommendations", ["Renew/update SSL certificate and disable weak protocols"])[0]
+                if ssl_info.get("recommendations") else "Review SSL/TLS configuration.",
+                f"TLS: {ssl_info.get('tls_version', 'unknown')}, Cipher: {ssl_info.get('cipher_name', 'unknown')}",
+                "SSL/TLS Security",
+            ))
+
+    exposed_panels = web_result.get("exposed_admin_panels") or []
+    for panel in exposed_panels:
+        findings.append(_finding(
+            "HIGH",
+            f"Exposed admin panel: {panel.get('path', '')}",
+            target,
+            f"Admin/management interface accessible at {panel.get('path', '')} (HTTP {panel.get('status', '?')})",
+            "Restrict access to admin panels using firewall rules, VPN, or authentication.",
+            f"Path: {panel.get('path', '')}, Status: {panel.get('status', '?')}",
+            "Web Exposure",
         ))
 
     return findings
@@ -269,16 +378,15 @@ def _web_findings(web_result):
 
 def _direct_cve_findings(cve_results, target):
     findings = []
-
     for cve in cve_results or []:
-        cve_id = cve.get("cve") or "CVE"
+        cve_id = _cve_id(cve)
         severity = _severity(cve.get("severity"))
-        score = cve.get("score")
+        score = _cve_score(cve)
         detail = cve.get("description") or "Known vulnerability matched the search."
-
         if score:
             detail = f"{detail} CVSS {score}."
-
+        if cve.get("published_date"):
+            detail = f"{detail} Published {cve.get('published_date')}."
         findings.append(_finding(
             severity,
             cve_id,
@@ -286,26 +394,18 @@ def _direct_cve_findings(cve_results, target):
             detail,
             "Confirm the affected product/version, patch it, and rescan.",
             category="Vulnerability",
-            cves=[{
-                "id": cve_id,
-                "severity": severity,
-                "score": score,
-                "description": cve.get("description") or "",
-            }],
+            cves=[_cve_payload(cve, severity)],
         ))
-
     return findings
 
 
 def _auth_findings(auth_result):
     if not auth_result:
         return []
-
     status = auth_result.get("status")
     auth_type = auth_result.get("type_label") or auth_result.get("type") or "credentials"
     checks = auth_result.get("checks") or []
     inventory = auth_result.get("inventory") or {}
-
     deep_findings = []
 
     for check in checks:
@@ -315,7 +415,6 @@ def _auth_findings(auth_result):
             severity = "MEDIUM"
         elif check_status == "success":
             severity = "INFO"
-
         deep_findings.append(_finding(
             severity,
             f"Auth check: {check.get('name') or 'Check'}",
@@ -339,7 +438,7 @@ def _auth_findings(auth_result):
     if inventory.get("sudo_rights"):
         sudo_lines = inventory.get("sudo_rights") or []
         has_nopasswd = any("nopasswd" in l.lower() for l in sudo_lines)
-        has_all      = any("(all)" in l.lower() for l in sudo_lines)
+        has_all = any("(all)" in l.lower() for l in sudo_lines)
         sev = "HIGH" if (has_nopasswd and has_all) else "MEDIUM"
         deep_findings.append(_finding(
             sev,
@@ -364,7 +463,7 @@ def _auth_findings(auth_result):
 
     if inventory.get("privileges"):
         priv_lines = inventory.get("privileges") or []
-        dangerous  = [p for p in priv_lines if any(d in p for d in (
+        dangerous = [p for p in priv_lines if any(d in p for d in (
             "SeDebugPrivilege", "SeTcbPrivilege", "SeLoadDriverPrivilege",
             "SeImpersonatePrivilege", "SeAssignPrimaryTokenPrivilege",
         ))]
@@ -438,10 +537,8 @@ def _auth_findings(auth_result):
 
 def _highest_severity(values, default="INFO"):
     severities = [_severity(value) for value in values if value]
-
     if not severities:
         return default
-
     return sorted(severities, key=lambda item: SEVERITY_ORDER[item])[0]
 
 
@@ -454,7 +551,6 @@ def _severity_breakdown(counts):
         "INFO": counts["info"] + counts["unknown"],
     }
     total = sum(visible_counts.values()) or 1
-
     return [
         {
             "key": key.lower(),
@@ -476,45 +572,33 @@ def _severity_ring_style(counts):
         ("INFO", counts["info"] + counts["unknown"]),
     ]
     total = sum(count for _, count in visible_counts)
-
     if total == 0:
         return "conic-gradient(#22c55e 0% 100%)"
-
     current = 0
     parts = []
-
     for severity, count in visible_counts:
         if count == 0:
             continue
-
         start = current
         current += (count / total) * 100
-        parts.append(
-            f"{SEVERITY_COLORS[severity]} {start:.2f}% {current:.2f}%"
-        )
-
+        parts.append(f"{SEVERITY_COLORS[severity]} {start:.2f}% {current:.2f}%")
     return f"conic-gradient({', '.join(parts)})"
 
 
 def _counts_from_items(items):
     counts = _empty_counts()
-
     for item in items:
         _add_count(counts, item.get("severity"))
-
     return counts
 
 
 def _parse_os_release(text):
     values = {}
-
     for line in (text or "").splitlines():
         if "=" not in line:
             continue
-
         key, value = line.split("=", 1)
         values[key.strip()] = value.strip().strip('"')
-
     return values.get("PRETTY_NAME") or values.get("NAME") or ""
 
 
@@ -527,7 +611,6 @@ def _system_profile(target, open_ports, web_result=None, auth_result=None):
     auth_inventory = (auth_result or {}).get("inventory", {})
     auth_os = _parse_os_release(auth_inventory.get("os", ""))
 
-    # Windows: WinRM inventory returns OS caption directly (not /etc/os-release format)
     if not auth_os and auth_result and auth_result.get("type") == "winrm":
         raw_os = auth_inventory.get("os", "")
         if raw_os:
@@ -554,8 +637,14 @@ def _system_profile(target, open_ports, web_result=None, auth_result=None):
             family = "Ubuntu Linux"
         elif "debian" in lower_os:
             family = "Debian Linux"
-        elif "metasploitable" in lower_os:
-            family = "Metasploitable"
+        elif "centos" in lower_os:
+            family = "CentOS Linux"
+        elif "red hat" in lower_os:
+            family = "Red Hat Linux"
+        elif "windows server" in lower_os:
+            family = "Windows Server"
+        elif "windows" in lower_os:
+            family = "Windows"
 
     banners = " ".join(port.get("banner", "") for port in open_ports).lower()
     services = {port.get("service") for port in open_ports}
@@ -586,10 +675,6 @@ def _system_profile(target, open_ports, web_result=None, auth_result=None):
         elif (
             {"ssh", "ftp", "smtp", "nfs", "postgresql", "redis"} & services
             or "openssh" in banners
-            or "ubuntu" in banners
-            or "debian" in banners
-            or "kali" in banners
-            or "metasploitable" in banners
         ):
             family = "Linux/Unix"
             os_name = "Linux/Unix host likely"
@@ -612,11 +697,28 @@ def _system_profile(target, open_ports, web_result=None, auth_result=None):
         os_name = "Debian Linux likely"
         family = "Debian Linux"
         evidence.append("Debian banner")
-    elif os_hints:
-        evidence.append(f"TCP/IP fingerprint: {os_hints[0]}")
+    elif "centos" in banners and "CentOS" not in os_name:
+        os_name = "CentOS Linux likely"
+        family = "CentOS Linux"
+        evidence.append("CentOS banner")
+    elif "windows server" in banners:
+        os_name = "Windows Server likely"
+        family = "Windows Server"
+        confidence = "Medium"
+        evidence.append("Windows Server banner")
+    elif "freebsd" in banners:
+        os_name = "FreeBSD likely"
+        family = "FreeBSD"
+        confidence = "Medium"
+        evidence.append("FreeBSD banner")
+    elif "darwin" in banners or "mac os" in banners:
+        os_name = "macOS likely"
+        family = "macOS"
+        confidence = "Medium"
+        evidence.append("macOS banner")
+
     web_headers = (web_result or {}).get("headers", {})
     server = web_headers.get("Server") or (web_result or {}).get("server") or ""
-
     if server:
         evidence.append(f"Server header: {server}")
 
@@ -631,7 +733,6 @@ def _system_profile(target, open_ports, web_result=None, auth_result=None):
 
 def _open_ports(port_results):
     ports = []
-
     for result in port_results or []:
         port = result.get("port")
         protocol = result.get("protocol") or "tcp"
@@ -640,6 +741,7 @@ def _open_ports(port_results):
         service = result.get("service") or "unknown"
         product = result.get("product") or ""
         version = result.get("version") or ""
+        confidence = result.get("product_confidence") or "low"
         cves = result.get("cves") or []
         cve_severity = _highest_severity([cve.get("severity") for cve in cves])
         sensitive_severity = SENSITIVE_PORTS.get(port, ("INFO", "", ""))[0]
@@ -657,6 +759,7 @@ def _open_ports(port_results):
             "service": service,
             "product": product,
             "version": version,
+            "confidence": confidence,
             "banner": result.get("banner") or "",
             "severity": severity,
             "cve_count": len(cves),
@@ -681,34 +784,47 @@ def _vulnerabilities(port_results, cve_results, target):
         version = result.get("version") or ""
 
         for cve in result.get("cves") or []:
-            cve_id = cve.get("cve") or "CVE"
+            cve_id = _cve_id(cve)
             severity = _severity(cve.get("severity"))
             vulnerabilities.append({
                 "id": cve_id,
                 "severity": severity,
-                "score": cve.get("score"),
+                "score": _cve_score(cve),
                 "asset": f"{service}:{port}",
                 "product": product,
                 "version": version,
                 "port": port,
                 "description": cve.get("description") or "Known vulnerability matched this service.",
-                "recommendation": "Patch or upgrade the affected service and rescan.",
+                "recommendation": "Patch or upgrade the affected service to a vendor-supported fixed release, then rescan.",
+                "published_date": cve.get("published_date") or "",
+                "affected_versions": _cve_affected_versions(cve),
+                "confidence": cve.get("confidence") or "",
+                "source": cve.get("source") or cve.get("data_source") or "",
+                "cvss_vector": cve.get("cvss_vector") or "",
+                "match_reason": cve.get("match_reason") or "",
             })
 
     for cve in cve_results or []:
-        cve_id = cve.get("cve") or "CVE"
+        cve_id = _cve_id(cve)
         vulnerabilities.append({
             "id": cve_id,
             "severity": _severity(cve.get("severity")),
-            "score": cve.get("score"),
+            "score": _cve_score(cve),
             "asset": target,
             "product": target,
             "version": "",
             "port": "",
             "description": cve.get("description") or "Known vulnerability matched the search.",
             "recommendation": "Confirm the affected product/version, patch it, and rescan.",
+            "published_date": cve.get("published_date") or "",
+            "affected_versions": _cve_affected_versions(cve),
+            "confidence": cve.get("confidence") or "",
+            "source": cve.get("source") or cve.get("data_source") or "",
+            "cvss_vector": cve.get("cvss_vector") or "",
+            "match_reason": cve.get("match_reason") or "",
         })
 
+    vulnerabilities.sort(key=lambda item: item.get("published_date") or "", reverse=True)
     vulnerabilities.sort(key=lambda item: SEVERITY_ORDER[_severity(item["severity"])])
     return vulnerabilities
 
@@ -716,18 +832,14 @@ def _vulnerabilities(port_results, cve_results, target):
 def _web_paths(web_result):
     if not web_result or web_result.get("error"):
         return []
-
     final_url = web_result.get("final_url") or web_result.get("input") or "website"
-
     return [
         {
             "path": path.get("path") or "",
             "status": path.get("status"),
             "url": final_url,
             "severity": "INFO",
-            "description": (
-                f"{path.get('path')} returned HTTP {path.get('status')} during the path check."
-            ),
+            "description": f"{path.get('path')} returned HTTP {path.get('status')} during the path check.",
             "recommendation": "Review the endpoint and remove or protect sensitive paths.",
         }
         for path in web_result.get("interesting_paths") or []
@@ -736,7 +848,6 @@ def _web_paths(web_result):
 
 def _missing_updates(vulnerabilities, auth_result=None):
     updates_by_key = {}
-
     for vulnerability in vulnerabilities:
         key = (
             vulnerability.get("asset"),
@@ -745,39 +856,20 @@ def _missing_updates(vulnerabilities, auth_result=None):
         )
         product = vulnerability.get("product") or vulnerability.get("asset")
         version = vulnerability.get("version") or "detected version"
-
         update = updates_by_key.setdefault(key, {
             "severity": vulnerability.get("severity") or "UNKNOWN",
             "asset": vulnerability.get("asset"),
             "product": product,
             "version": version,
             "cves": [],
-            "description": (
-                f"{product} has matched CVE results. Treat this as a missing update "
-                "until the exact installed version is confirmed."
-            ),
+            "description": f"{product} has matched CVE results. Treat this as a missing update until the exact installed version is confirmed.",
             "recommendation": "Install the vendor security update or upgrade to a fixed version.",
         })
-
-        update["severity"] = _highest_severity([
-            update.get("severity"),
-            vulnerability.get("severity"),
-        ])
-        update["cves"].append({
-            "id": vulnerability.get("id"),
-            "severity": vulnerability.get("severity"),
-            "score": vulnerability.get("score"),
-            "description": vulnerability.get("description") or "",
-        })
+        update["severity"] = _highest_severity([update.get("severity"), vulnerability.get("severity")])
+        update["cves"].append(_cve_payload(vulnerability, vulnerability.get("severity")))
 
     updates = list(updates_by_key.values())
-
-    package_updates = (
-        (auth_result or {})
-        .get("inventory", {})
-        .get("package_updates", [])
-    )
-
+    package_updates = (auth_result or {}).get("inventory", {}).get("package_updates", [])
     for package in package_updates:
         updates.append({
             "severity": "MEDIUM",
@@ -785,9 +877,7 @@ def _missing_updates(vulnerabilities, auth_result=None):
             "product": package,
             "version": "package manager update",
             "cves": [],
-            "description": (
-                "Authenticated package manager output reported this package as upgradable."
-            ),
+            "description": "Authenticated package manager output reported this package as upgradable.",
             "recommendation": "Review and install the package update on the authenticated host.",
         })
 
@@ -795,14 +885,7 @@ def _missing_updates(vulnerabilities, auth_result=None):
     return updates
 
 
-def _scanned_items(
-    open_ports,
-    vulnerabilities,
-    web_paths,
-    missing_updates,
-    web_findings,
-    auth_result,
-):
+def _scanned_items(open_ports, vulnerabilities, web_paths, missing_updates, web_findings, auth_result):
     items = []
 
     for port in open_ports:
@@ -814,15 +897,7 @@ def _scanned_items(
             "description": port["description"],
             "evidence": port.get("banner") or "No banner received.",
             "recommendation": port["recommendation"],
-            "cves": [
-                {
-                    "id": cve.get("cve") or "CVE",
-                    "severity": _severity(cve.get("severity")),
-                    "score": cve.get("score"),
-                    "description": cve.get("description") or "",
-                }
-                for cve in port.get("cves") or []
-            ],
+            "cves": [_cve_payload(cve, cve.get("severity")) for cve in port.get("cves") or []],
             "details": [
                 ("Protocol", (port.get("protocol") or "tcp").upper()),
                 ("Port", port.get("port")),
@@ -835,6 +910,7 @@ def _scanned_items(
                 ("Service", port.get("service")),
                 ("Product", port.get("product") or "Unknown"),
                 ("Version", port.get("version") or "Unknown"),
+                ("Confidence", port.get("confidence") or "Unknown"),
                 ("CVEs", port.get("cve_count")),
             ],
         })
@@ -846,21 +922,28 @@ def _scanned_items(
             "title": vulnerability["id"],
             "subtitle": vulnerability.get("asset") or "",
             "description": vulnerability.get("description") or "",
-            "evidence": (
-                f"Matched product: {vulnerability.get('product') or 'Unknown'} "
-                f"{vulnerability.get('version') or ''}".strip()
-            ),
+            "evidence": f"Matched product: {vulnerability.get('product') or 'Unknown'} {vulnerability.get('version') or ''}; published: {vulnerability.get('published_date') or 'unknown'}; affected versions: {_affected_label(vulnerability)}",
             "recommendation": vulnerability["recommendation"],
             "cves": [{
                 "id": vulnerability["id"],
                 "severity": vulnerability["severity"],
                 "score": vulnerability.get("score"),
                 "description": vulnerability.get("description") or "",
+                "published_date": vulnerability.get("published_date") or "",
+                "affected_versions": vulnerability.get("affected_versions") or [],
+                "confidence": vulnerability.get("confidence") or "",
+                "source": vulnerability.get("source") or "",
+                "cvss_vector": vulnerability.get("cvss_vector") or "",
+                "match_reason": vulnerability.get("match_reason") or "",
             }],
             "details": [
                 ("CVSS", vulnerability.get("score") or "Unknown"),
                 ("Product", vulnerability.get("product") or "Unknown"),
                 ("Version", vulnerability.get("version") or "Unknown"),
+                ("Published", vulnerability.get("published_date") or "Unknown"),
+                ("Affected versions", _affected_label(vulnerability)),
+                ("Match confidence", vulnerability.get("confidence") or "Unknown"),
+                ("Match reason", vulnerability.get("match_reason") or "NVD product/version match"),
                 ("Port", vulnerability.get("port") or "N/A"),
             ],
         })
@@ -875,11 +958,7 @@ def _scanned_items(
             "evidence": path.get("url") or "",
             "recommendation": path["recommendation"],
             "cves": [],
-            "details": [
-                ("Path", path.get("path")),
-                ("HTTP status", path.get("status")),
-                ("Base URL", path.get("url")),
-            ],
+            "details": [("Path", path.get("path")), ("HTTP status", path.get("status")), ("Base URL", path.get("url"))],
         })
 
     for finding in web_findings:
@@ -892,11 +971,7 @@ def _scanned_items(
             "evidence": finding.get("evidence") or "",
             "recommendation": finding.get("recommendation") or "Review the web configuration.",
             "cves": finding.get("cves") or [],
-            "details": [
-                ("Asset", finding.get("asset")),
-                ("Category", finding.get("category")),
-                ("Status", finding.get("status")),
-            ],
+            "details": [("Asset", finding.get("asset")), ("Category", finding.get("category")), ("Status", finding.get("status"))],
         })
 
     for update in missing_updates:
@@ -909,12 +984,7 @@ def _scanned_items(
             "evidence": f"Version: {update.get('version') or 'Unknown'}",
             "recommendation": update["recommendation"],
             "cves": update.get("cves") or [],
-            "details": [
-                ("Asset", update.get("asset")),
-                ("Product", update.get("product")),
-                ("Version", update.get("version")),
-                ("Related CVEs", len(update.get("cves") or [])),
-            ],
+            "details": [("Asset", update.get("asset")), ("Product", update.get("product")), ("Version", update.get("version")), ("Related CVEs", len(update.get("cves") or []))],
         })
 
     if auth_result:
@@ -927,19 +997,13 @@ def _scanned_items(
             "evidence": f"Username: {auth_result.get('username') or 'N/A'}",
             "recommendation": "Use valid credentials for deeper host checks.",
             "cves": [],
-            "details": [
-                ("Credential type", auth_result.get("type_label")),
-                ("Status", auth_result.get("status")),
-                ("Username", auth_result.get("username")),
-            ],
+            "details": [("Credential type", auth_result.get("type_label")), ("Status", auth_result.get("status")), ("Username", auth_result.get("username"))],
         })
-
         for check in auth_result.get("checks") or []:
             check_status = (check.get("status") or "info").lower()
             check_severity = "INFO"
             if check_status == "failed":
                 check_severity = "MEDIUM"
-
             items.append({
                 "category": "Authentication Check",
                 "severity": check_severity,
@@ -949,34 +1013,21 @@ def _scanned_items(
                 "evidence": f"Status: {check_status}",
                 "recommendation": "Review this authenticated check and harden the affected host/application.",
                 "cves": [],
-                "details": [
-                    ("Credential type", auth_result.get("type_label")),
-                    ("Check status", check_status),
-                    ("Username", auth_result.get("username")),
-                ],
+                "details": [("Credential type", auth_result.get("type_label")), ("Check status", check_status), ("Username", auth_result.get("username"))],
             })
-
         inventory = auth_result.get("inventory") or {}
-
         if inventory.get("world_writable"):
             items.append({
                 "category": "Authentication Exposure",
                 "severity": "HIGH",
                 "title": "World-writable files found",
                 "subtitle": auth_result.get("type_label") or "",
-                "description": (
-                    "Authenticated checks found world-writable files in sensitive system/application paths."
-                ),
+                "description": "Authenticated checks found world-writable files in sensitive system/application paths.",
                 "evidence": ", ".join((inventory.get("world_writable") or [])[:3]),
                 "recommendation": "Fix permissions and ownership, then rerun an authenticated scan.",
                 "cves": [],
-                "details": [
-                    ("Affected files", len(inventory.get("world_writable") or [])),
-                    ("Credential type", auth_result.get("type_label")),
-                    ("Username", auth_result.get("username")),
-                ],
+                "details": [("Affected files", len(inventory.get("world_writable") or [])), ("Credential type", auth_result.get("type_label")), ("Username", auth_result.get("username"))],
             })
-
         if inventory.get("sudo_rights"):
             items.append({
                 "category": "Authentication Exposure",
@@ -987,11 +1038,7 @@ def _scanned_items(
                 "evidence": ", ".join((inventory.get("sudo_rights") or [])[:2]),
                 "recommendation": "Limit sudo rules to minimum required commands and users.",
                 "cves": [],
-                "details": [
-                    ("Sudo entries", len(inventory.get("sudo_rights") or [])),
-                    ("Credential type", auth_result.get("type_label")),
-                    ("Username", auth_result.get("username")),
-                ],
+                "details": [("Sudo entries", len(inventory.get("sudo_rights") or [])), ("Credential type", auth_result.get("type_label")), ("Username", auth_result.get("username"))],
             })
 
     items.sort(key=lambda item: SEVERITY_ORDER[_severity(item["severity"])])
@@ -1010,10 +1057,13 @@ def build_security_report(
     cve_results = cve_results or []
     scan_mode = scan_mode if scan_mode == "authenticated" else "unauthenticated"
     web_findings = _web_findings(web_result)
+    web_tech_findings = _web_technology_findings(web_result, target)
+
+    all_web_findings = web_findings + web_tech_findings
 
     findings = (
         _port_findings(port_results)
-        + web_findings
+        + all_web_findings
         + _direct_cve_findings(cve_results, target)
         + _auth_findings(auth_result)
     )
@@ -1021,26 +1071,16 @@ def build_security_report(
     open_ports = _open_ports(port_results)
     vulnerabilities = _vulnerabilities(port_results, cve_results, target)
     web_paths = _web_paths(web_result)
-    web_item_findings = [
-        finding
-        for finding in web_findings
-        if finding.get("category") != "Web Path"
-    ]
+    web_item_findings = [f for f in all_web_findings if f.get("category") != "Web Path"]
     missing_updates = _missing_updates(vulnerabilities, auth_result)
-    scanned_items = _scanned_items(
-        open_ports,
-        vulnerabilities,
-        web_paths,
-        missing_updates,
-        web_item_findings,
-        auth_result,
-    )
+    scanned_items = _scanned_items(open_ports, vulnerabilities, web_paths, missing_updates, web_item_findings, auth_result)
     enrich_scanned_items(scanned_items)
     counts = _counts_from_items(scanned_items)
-    score = min(
-        100,
-        sum(SEVERITY_POINTS[_severity(item["severity"])] for item in scanned_items),
-    )
+
+    cve_bonus = sum(_cvss_risk_score(item.get("cves", [])) for item in scanned_items)
+    base_score = sum(SEVERITY_POINTS[_severity(item["severity"])] for item in scanned_items)
+    score = min(100, base_score + cve_bonus)
+
     services = [
         {
             "port": port.get("port"),
@@ -1051,6 +1091,7 @@ def build_security_report(
             "service": port.get("service") or "unknown",
             "product": port.get("product") or "",
             "version": port.get("version") or "",
+            "confidence": port.get("confidence") or "low",
             "severity": port.get("severity") or "INFO",
             "cve_count": port.get("cve_count") or 0,
         }
@@ -1066,14 +1107,18 @@ def build_security_report(
         if finding.get("recommendation")
     ])[:6]
 
+    technologies = []
+    if web_result and not web_result.get("error"):
+        technologies = web_result.get("technologies") or []
+
+    ssl_security = None
+    if web_result and not web_result.get("error"):
+        ssl_security = web_result.get("ssl_security")
+
     report = {
         "target": target,
         "scan_mode": scan_mode,
-        "scan_mode_label": (
-            "Authenticated Scan"
-            if scan_mode == "authenticated"
-            else "Non-authenticated Scan"
-        ),
+        "scan_mode_label": "Authenticated Scan" if scan_mode == "authenticated" else "Non-authenticated Scan",
         "system_profile": system_profile,
         "authentication": auth_result,
         "risk_score": score,
@@ -1081,6 +1126,8 @@ def build_security_report(
         "severity_counts": counts,
         "severity_breakdown": _severity_breakdown(counts),
         "severity_ring_style": _severity_ring_style(counts),
+        "technologies": technologies,
+        "ssl_security": ssl_security,
         "summary": {
             "open_ports": len(port_results),
             "services": len({result.get("service") for result in port_results if result.get("service")}),
@@ -1091,6 +1138,7 @@ def build_security_report(
             "findings": len(scanned_items),
             "web_findings": len(web_findings),
             "scanned_items": len(scanned_items),
+            "technologies": len(technologies),
         },
         "services": services,
         "open_ports": open_ports,

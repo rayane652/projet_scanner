@@ -1,4 +1,8 @@
-from modules.nvd_client import nvd_client, epss_client
+import logging
+
+from modules.nvd_client import epss_client, search_cves_with_nvd
+
+logger = logging.getLogger(__name__)
 
 LOCAL_CVE_DB = {
     "nginx": [
@@ -29,6 +33,9 @@ LOCAL_CVE_DB = {
 def _normalize(cve):
     cve["cve"] = cve.get("id", "")
     cve["score"] = cve.get("cvss_score")
+    cve.setdefault("published_date", cve.get("published", "")[:10])
+    cve.setdefault("affected_versions", [])
+    cve.setdefault("confidence", "medium")
     return cve
 
 
@@ -37,7 +44,7 @@ def search_cves(product: str, version: str = "") -> list:
         return []
 
     try:
-        results = nvd_client.search_by_product(product, version or None, limit=10)
+        results = search_cves_with_nvd(product, version or None, limit=10)
         if results:
             cve_ids = [c["id"] for c in results if c.get("id")]
             if cve_ids:
@@ -50,8 +57,8 @@ def search_cves(product: str, version: str = "") -> list:
                     cve["source"] = "NVD"
                     _normalize(cve)
             return results
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("NVD CVE search failed for %s %s: %s", product, version, exc)
 
     return search_cves_local(product, version)
 
@@ -69,6 +76,9 @@ def search_cves_local(product: str, version: str = "") -> list:
                     "cvss_score": cve.get("cvss_score"),
                     "score": cve.get("cvss_score"),
                     "source": "Local DB",
+                    "data_source": "Local fallback",
+                    "confidence": "fallback",
+                    "affected_versions": ["confirm installed version manually"],
                 }
                 for cve in cves
             ]

@@ -55,14 +55,8 @@
             </div>
           </label>
 
-          <label class="field full-row" id="profile-row" style="display:none">
-            <span>Scan Profile</span>
-            <div class="scope-selector">
-              <label class="scope-pill"><input type="radio" name="profile" value="quick" checked><span><i class="fas fa-bolt"></i> Quick</span></label>
-              <label class="scope-pill"><input type="radio" name="profile" value="balanced"><span><i class="fas fa-scale-balanced"></i> Balanced</span></label>
-              <label class="scope-pill"><input type="radio" name="profile" value="deep"><span><i class="fas fa-microscope"></i> Deep</span></label>
-            </div>
-          </label>
+          <!-- Hidden profile — always adaptive -->
+          <input type="hidden" name="profile" value="adaptive">
 
           <!-- Engine (security only) -->
           <div id="sec-engine" class="section-card full-row">
@@ -120,7 +114,7 @@
           </div>
 
           <!-- Start button -->
-          <button type="submit" class="scan-btn"><i class="fas fa-play"></i> Start Scan</button>
+          <button type="submit" class="scan-btn"><i class="fas fa-microchip"></i> Start Adaptive Security Scan</button>
         </div>
       </form>
     </section>
@@ -169,7 +163,6 @@ const descList = document.getElementById("desc-list");
 const descTip = document.getElementById("desc-tip");
 const descTitle = document.getElementById("desc-title");
 const scopeRow = document.getElementById("scope-row");
-const profileRow = document.getElementById("profile-row");
 
 // ── Scope toggle ──
 const scopeInputs = document.querySelectorAll('input[name="scan_scope"]');
@@ -190,16 +183,15 @@ scopeInputs.forEach(r => r.addEventListener("change", () => {
 
 const DESCS = {
   security: {
-    title: "Security Scan — full port + vulnerability scan",
-    items: ["Discovers open ports and services","Runs TCP Connect, optional SYN and UDP probes","Fingerprints service versions and OS","Checks for web vulnerabilities","Finds CVE matches via NVD database","Generates risk score, AI analysis and report","Host Scan: single target, detailed analysis","Network Scan: CIDR subnet, auto host discovery, per-host risk ranking"],
-    tip: "<i class='fas fa-lightbulb'></i> <strong>Tip:</strong> Authenticated scans provide deeper insights and better accuracy."
+    title: "Adaptive Security Scan — intelligent vulnerability assessment",
+    items: ["Smart Scan adapts depth based on target size and risk","Discovers open ports and services with banner grabbing","Advanced service fingerprinting (Apache, Nginx, MySQL, etc.)","Web technology detection (WordPress, Laravel, React, etc.)","Comprehensive SSL/TLS security analysis","HTTP security hardening checks (CSP, HSTS, X-Frame-Options)","OS fingerprinting from banners and TTL signatures","Detects CVEs via NVD database with EPSS scoring","Generates risk score, AI analysis and remediation report","Host Scan: single target deep analysis","Network Scan: CIDR subnet, adaptive host ranking"],
+    tip: "<i class='fas fa-lightbulb'></i> <strong>Tip:</strong> The scanner automatically adjusts scan depth for optimal speed vs. thoroughness."
   },
   web: {
-    title: "Web Scan — deep web security analysis",
-    items: ["Analyzes HTTP security headers","Checks cookie security (Secure, HttpOnly, SameSite)","Scans for sensitive files and endpoints","Detects technologies and frameworks","Analyzes JavaScript for secrets and tokens","Tests CORS, HTTP methods, SSL/TLS config","Detects XSS and SQLi indicators","Generates web risk score and AI report"],
+    title: "Web Security Scan — deep website analysis",
+    items: ["Analyzes HTTP security headers (CSP, HSTS, XFO, XCTO)","Checks cookie security (Secure, HttpOnly, SameSite)","Detects web technologies and frameworks","Scans for sensitive files and exposed admin panels","Analyzes JavaScript for hardcoded secrets and tokens","Tests CORS, HTTP methods, SSL/TLS configuration","Detects XSS and SQL injection indicators","Validates TLS certificates (expiry, self-signed, weak ciphers)","Generates web risk score and AI report"],
     tip: "<i class='fas fa-lightbulb'></i> <strong>Tip:</strong> Web scans are non-invasive and require no credentials."
   },
-
 };
 
 function updateScanUI() {
@@ -209,7 +201,6 @@ function updateScanUI() {
   const isNet = isSec && scope === "network";
   secEngine.style.display = isSec ? "" : "none";
   scopeRow.style.display = isSec ? "" : "none";
-  profileRow.style.display = isNet ? "" : "none";
   secCreds.style.display = isSec && !isNet ? "" : "none";
 
   const d = DESCS[t];

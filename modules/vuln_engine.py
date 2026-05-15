@@ -1,5 +1,5 @@
-from modules.port_scanner import scan_ports
 from modules.cve_scanner import search_cves
+from modules.port_scanner import scan_ports
 from modules.service_detector import detect_service_and_version
 
 
@@ -11,48 +11,33 @@ def run_vuln_scan(target, scan_method="connect", include_udp=False):
     )
 
     final_results = []
-
     if not ports:
-        return []
+        return final_results
 
-    for p in ports:
-        port = p["port"]
-        protocol = p.get("protocol") or "tcp"
-        banner = p.get("banner", "")
+    for port_result in ports:
+        port = port_result["port"]
+        protocol = port_result.get("protocol") or "tcp"
+        banner = port_result.get("banner", "")
+        state = port_result.get("state") or "open"
 
-        service, version, product = detect_service_and_version(port, banner, protocol)
-
-        cves = []
-
-        if product:
-            cves = search_cves(product, version)
+        service, version, product, confidence = detect_service_and_version(port, banner, protocol)
+        cves = search_cves(product, version) if product else []
 
         final_results.append({
             "port": port,
             "protocol": protocol,
-            "state": p.get("state") or "open",
+            "state": state,
             "service": service,
             "version": version,
             "product": product,
+            "product_confidence": confidence,
             "banner": banner,
-            "scan_method": p.get("scan_method") or "tcp_connect",
-            "reason": p.get("reason") or "",
-            "ttl": p.get("ttl"),
-            "tcp_window": p.get("tcp_window"),
-            "os_hint": p.get("os_hint") or "",
-            "cves": cves
+            "scan_method": port_result.get("scan_method") or "tcp_connect",
+            "reason": port_result.get("reason") or "",
+            "ttl": port_result.get("ttl"),
+            "tcp_window": port_result.get("tcp_window"),
+            "os_hint": port_result.get("os_hint") or "",
+            "cves": cves,
         })
 
     return final_results
-
-from modules.cve_scanner import search_cves
-
-# Quand tu détectes un service
-service_name = "nginx"  # exemple
-service_version = "1.18.0"
-
-cves = search_cves(service_name, service_version)
-if cves:
-    print(f"Found {len(cves)} CVEs for {service_name}")
-    for cve in cves:
-        print(f"  - {cve['id']}: {cve['severity']}")

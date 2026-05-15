@@ -11,8 +11,8 @@
       </div>
       <div>
         <h1 class="hero-asset-name">Network Scan</h1>
-        <p class="hero-target">{{ net.targets_raw or target }} — {{ net.duration_seconds or "?" }}s</p>
-        {% if net.profile %}<span class="scan-type-pill type-{{ net.profile }}" style="margin-top:4px;display:inline-block;">{{ net.profile|capitalize }}</span>{% endif %}
+        <p class="hero-target">{{ net.targets_raw or target }} — {{ net.duration_seconds or "?" }}s
+        {% if net.adaptive_depth %}<span class="scan-type-pill type-security" style="margin-left:8px;">Adaptive: {{ net.adaptive_depth|capitalize }}</span>{% endif %}</p>
       </div>
     </div>
     <div class="hero-info-cards">
@@ -122,10 +122,14 @@
         {% endif %}
         {% if host.cves %}
         <strong>CVEs ({{ host.cves|length }})</strong>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;">
+        <div style="display:flex;flex-direction:column;gap:6px;">
           {% for c in host.cves[:5] %}
           {% set c_sev = (c.severity or "INFO")|lower %}
-          <span class="severity-tag severity-soft-{{ c_sev }}" style="font-size:10px;">{{ c.id or c.cve or "?" }}</span>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;">
+            <span class="severity-tag severity-soft-{{ c_sev }}" style="font-size:10px;">{{ c.id or c.cve or "?" }}</span>
+            {% if c.published_date %}<span style="color:#64748b;">{{ c.published_date }}</span>{% endif %}
+            {% if c.affected_versions %}<span style="color:#64748b;">Affected: {{ c.affected_versions[:2]|join(", ") }}</span>{% endif %}
+          </div>
           {% endfor %}
           {% if host.cves|length > 5 %}<span style="font-size:11px;color:#64748b;">+{{ host.cves|length - 5 }} more</span>{% endif %}
         </div>

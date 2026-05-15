@@ -596,8 +596,120 @@ _STATIC = {
 #  Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _match_static(title: str, description: str, severity: str = "") -> dict | None:
-    haystack = f"{title} {description}".lower()
+_PACKAGE_ALIASES = {
+    "nginx": ("nginx", "nginx"),
+    "apache": ("apache2", "httpd"),
+    "apache http server": ("apache2", "httpd"),
+    "httpd": ("apache2", "httpd"),
+    "tomcat": ("tomcat9", "tomcat"),
+    "apache tomcat": ("tomcat9", "tomcat"),
+    "mysql": ("mysql-server", "mysql-server"),
+    "mysql server": ("mysql-server", "mysql-server"),
+    "mariadb": ("mariadb-server", "mariadb-server"),
+    "postgresql": ("postgresql", "postgresql-server"),
+    "postgres": ("postgresql", "postgresql-server"),
+    "redis": ("redis-server", "redis"),
+    "mongodb": ("mongodb-org", "mongodb-org"),
+    "openssh": ("openssh-server", "openssh-server"),
+    "ssh": ("openssh-server", "openssh-server"),
+    "php": ("php", "php"),
+    "bind": ("bind9", "bind"),
+    "postfix": ("postfix", "postfix"),
+    "exim": ("exim4", "exim"),
+    "vsftpd": ("vsftpd", "vsftpd"),
+    "proftpd": ("proftpd", "proftpd"),
+    "elasticsearch": ("elasticsearch", "elasticsearch"),
+}
+
+
+def _extract_product_context(title: str, description: str, evidence: str = "") -> dict:
+    haystack = f"{title} {description} {evidence}".lower()
+    product = ""
+    for name in sorted(_PACKAGE_ALIASES, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(name)}\b", haystack):
+            product = name
+            break
+
+    if not product:
+        match = re.search(r"matched product:\s*([a-z0-9_.+\- ]+?)(?:\s+\d|;|$)", haystack)
+        if match:
+            product = match.group(1).strip()
+
+    version = ""
+    if product:
+        match = re.search(rf"\b{re.escape(product)}\s+(\d+(?:\.\d+){{0,5}}[a-z0-9.\-]*)", haystack)
+        if match:
+            version = match.group(1)
+    if not version:
+        match = re.search(r"\bversion:\s*(\d+(?:\.\d+){0,5}[a-z0-9.\-]*)", haystack)
+        if match:
+            version = match.group(1)
+
+    apt_pkg, yum_pkg = _PACKAGE_ALIASES.get(
+        product,
+        (product or "<package-name>", product or "<package-name>"),
+    )
+    return {"product": product or "the affected package", "version": version, "apt_pkg": apt_pkg, "yum_pkg": yum_pkg}
+
+
+def _linux_patch_commands(context: dict) -> list:
+    apt_pkg = context.get("apt_pkg") or "<package-name>"
+    yum_pkg = context.get("yum_pkg") or apt_pkg
+    apt_service = apt_pkg.split()[0].replace("-server", "")
+    yum_service = yum_pkg.split()[0].replace("-server", "")
+    return [
+        "# Debian / Ubuntu",
+        f"sudo apt update && sudo apt install --only-upgrade {apt_pkg} -y",
+        f"sudo systemctl restart {apt_service} || true",
+        "# RHEL / CentOS / Rocky / Fedora",
+        f"sudo yum update {yum_pkg} -y || sudo dnf update {yum_pkg} -y",
+        f"sudo systemctl restart {yum_service} || true",
+    ]
+
+
+def _cve_or_package_fix(title: str, description: str, severity: str, evidence: str, recommendation: str) -> dict | None:
+    haystack = f"{title} {description} {evidence} {recommendation}".lower()
+    is_cve_or_update = (
+        re.search(r"\bcve-\d{4}-\d+", haystack)
+        or "missing update" in haystack
+        or "update required" in haystack
+        or ("matched product:" in haystack and re.search(r"\b(patch|upgrade|update)\b", haystack))
+        or ("known vulnerability" in haystack and re.search(r"\b(patch|upgrade|update)\b", haystack))
+    )
+    if not is_cve_or_update:
+        return None
+
+    context = _extract_product_context(title, description, evidence)
+    product = context["product"]
+    version = context.get("version")
+    version_text = f" {version}" if version else ""
+    return {
+        "title": f"Patch {product}",
+        "explanation": (
+            f"{title} maps to a known vulnerability or missing security update for {product}{version_text}. "
+            "Install the vendor security update, restart the affected service, and rescan."
+        ),
+        "impact": (
+            "Leaving this unpatched keeps a known vulnerable service version reachable. "
+            "Attackers can use public exploit details or automated scanners against exposed hosts."
+        ),
+        "commands": _linux_patch_commands(context),
+        "config": (
+            "# Verification after patching\n"
+            f"{context['apt_pkg']} --version || rpm -q {context['yum_pkg']}\n"
+            "sudo systemctl status <service-name>\n"
+            "# Re-run the VulniX scan after the service restarts."
+        ),
+        "source": "static",
+    }
+
+
+def _match_static(title: str, description: str, severity: str = "", evidence: str = "", recommendation: str = "") -> dict | None:
+    haystack = f"{title} {description} {evidence} {recommendation}".lower()
+
+    package_fix = _cve_or_package_fix(title, description, severity, evidence, recommendation)
+    if package_fix:
+        return package_fix
 
     # Exact keyword match
     for kw, fix in _STATIC.items():
@@ -741,12 +853,18 @@ def _parse(raw: str, title: str) -> dict:
 
 
 def _fallback(title: str, recommendation: str = "", error: str = "") -> dict:
+    context = _extract_product_context(title, recommendation, "")
+    package_fix = _cve_or_package_fix(title, recommendation, "", "", recommendation)
+    if package_fix:
+        package_fix["source"] = "fallback"
+        return package_fix
+
     return {
-        "title":       title,
-        "explanation": recommendation or "Review and remediate per security best practices.",
-        "impact":      error,
-        "commands":    [],
-        "config":      "",
+        "title":       title or "Recommended remediation",
+        "explanation": recommendation or "Apply the relevant vendor security update and hardening guidance, then rescan the target.",
+        "impact":      "The finding remains exposed until the affected software or configuration is remediated.",
+        "commands":    _linux_patch_commands(context),
+        "config":      "# Replace <package-name> or <service-name> with the affected component, then rescan after patching.",
         "source":      "fallback",
     }
 
@@ -763,7 +881,7 @@ def _process_one(finding: dict) -> dict:
     rec   = (finding.get("recommendation") or "").strip()
 
     # 1. Static library (instant, no API)
-    static = _match_static(title, desc, sev)
+    static = _match_static(title, desc, sev, ev, rec)
     if static:
         return {**static, "title": title}
 
@@ -779,7 +897,7 @@ def _process_one(finding: dict) -> dict:
                 404: "No AI model available right now — showing recommendation.",
                 429: "OpenRouter rate limit reached. The fix will be available shortly — try again in a few seconds.",
                 500: "OpenRouter server error. Try again later.",
-            }.get(status, f"API error (HTTP {status})")
+            }.get(status, "AI remediation service did not return a usable response. Showing deterministic remediation steps.")
             logger.error("HTTP %s for '%s': %s", status, title, friendly)
             return _fallback(title, rec, friendly)
         except Exception as e:

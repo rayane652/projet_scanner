@@ -26,7 +26,6 @@ from werkzeug.serving import WSGIRequestHandler
 from modules.ai_analyst import answer_scan_question, build_ai_analysis
 from modules.auth_scanner import run_authenticated_checks
 from modules.web_scanner import scan_website
-from modules.cve_scanner import search_cves
 from modules.risk_report import build_security_report
 from modules.utils import resolve_host
 from modules.vuln_engine import run_vuln_scan
@@ -163,7 +162,7 @@ def execute_scan(scan_type, scan_mode, target, form_data):
             from modules.network_scanner import run_network_scan
             result = run_network_scan(
                 target,
-                profile=form_data.get("profile", "quick"),
+                profile="adaptive",
                 scan_method=form_data.get("tcp_scan_method") or "connect",
                 include_udp=bool(form_data.get("include_udp")),
             )
@@ -1577,18 +1576,38 @@ def generate_fix():
         if not data["title"]:
             return jsonify({"error": "title is required"}), 400
 
-        return jsonify(generate_single_remediation(data))
+        result = generate_single_remediation(data)
+        if not isinstance(result, dict):
+            raise ValueError("Auto-Fix engine returned an invalid response")
+
+        result.setdefault("title", data["title"])
+        result.setdefault("explanation", data["recommendation"] or "Apply the recommended remediation and rescan.")
+        result.setdefault("impact", "The finding remains exposed until remediated.")
+        result.setdefault("commands", [])
+        result.setdefault("config", "")
+        result.setdefault("source", "fallback")
+        return jsonify(result)
 
     except Exception as e:
         print("AI FIX ERROR:", repr(e))
+        title = ""
+        try:
+            body = request.get_json(silent=True) or {}
+            title = str(body.get("title", "") or "")[:300]
+            recommendation = str(body.get("recommendation", "") or "")[:500]
+        except Exception:
+            recommendation = ""
         return jsonify({
-            "title":       "Error",
-            "explanation": str(e),
-            "impact":      "",
-            "commands":    [],
+            "title":       title or "Recommended remediation",
+            "explanation": recommendation or "Apply vendor security updates for the affected component, restart the service, and rescan.",
+            "impact":      "The finding remains exposed until the affected software or configuration is remediated.",
+            "commands":    [
+                "sudo apt update && sudo apt upgrade -y",
+                "sudo yum update -y || sudo dnf update -y",
+            ],
             "config":      "",
             "source":      "fallback",
-        }), 500
+        })
 
 @app.route("/search")
 def search():
