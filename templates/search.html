@@ -69,7 +69,7 @@
                 <span class="ss-count">{{ results.scans|length }}</span>
             </div>
             {% for item in results.scans %}
-            <a href="{{ url_for('result', scan_id=item.id) }}" class="search-result-card scan-result">
+            <a href="{{ url_for('result_by_slug', target_slug=item.slug) }}" class="search-result-card scan-result">
                 <div class="src-icon" style="background:#ede9fe;color:#7f30cb">
                     <i class="fas fa-shield-halved"></i>
                 </div>
@@ -96,7 +96,7 @@
                 <span class="ss-count">{{ results.assets|length }}</span>
             </div>
             {% for item in results.assets %}
-            <a href="{{ url_for('result', scan_id=item.latest_scan_id) }}" class="search-result-card">
+            <a href="{{ url_for('result_by_slug', target_slug=item.slug) }}" class="search-result-card">
                 <div class="src-icon" style="background:#dbeafe;color:#2563eb">
                     <i class="fas fa-server"></i>
                 </div>
@@ -118,7 +118,7 @@
                 <span class="ss-count">{{ results.vulnerabilities|length }}</span>
             </div>
             {% for item in results.vulnerabilities %}
-            <a href="{{ url_for('result', scan_id=item.scan_id) }}#findings"  class="search-result-card">
+            <a href="{{ url_for('result_by_slug', target_slug=item.scan_slug) }}#findings"  class="search-result-card">
                 <div class="src-icon severity-soft-{{ item.severity|lower }}" style="width:42px;height:42px;border-radius:11px;display:grid;place-items:center;flex-shrink:0">
                     <i class="fas fa-triangle-exclamation"></i>
                 </div>
@@ -144,7 +144,7 @@
     </div>
 
     {% for item in results.ports %}
-    <a href="{{ url_for('result', scan_id=item.scan_id) }}#ports"
+    <a href="{{ url_for('result_by_slug', target_slug=item.scan_slug) }}#ports"
        class="search-result-card">
 
         <div class="src-icon"
@@ -180,7 +180,7 @@
     </div>
 
     {% for item in results.webpaths %}
-    <a href="{{ url_for('result', scan_id=item.scan_id) }}"
+    <a href="{{ url_for('result_by_slug', target_slug=item.scan_slug) }}"
        class="search-result-card">
 
         <div class="src-icon"

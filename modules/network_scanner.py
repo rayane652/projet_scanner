@@ -1,4 +1,5 @@
 import ipaddress
+import logging
 import re
 import socket
 import struct
@@ -10,6 +11,8 @@ import time
 from collections import defaultdict
 from datetime import datetime
 
+logger = logging.getLogger(__name__)
+
 from modules.port_scanner import scan_ports
 from modules.service_detector import detect_service_and_version
 from modules.cve_scanner import search_cves
@@ -19,10 +22,13 @@ TOP_PORTS = [22, 21, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995
 MOBILE_PORTS = [5555, 4244, 3724, 5554, 8080, 8443, 9000]
 IOT_PORTS = [1883, 8883, 5683, 5684, 4843, 22, 80, 443, 8080]
 MEDIA_PORTS = [32400, 1900, 5353, 5004, 5005, 7000, 7001, 8000, 8890]
-DISCOVERY_PORTS = list(set([22, 80, 443, 445, 3389, 8080, 8443, 5555, 32400, 1900, 5353, 1883, 5000, 7000, 8081, 9000]))
-SCAN_TIMEOUT = 4
-MAX_DISCOVERY_WORKERS = 50
-MAX_ENUM_WORKERS = 20
+DISCOVERY_PORTS = [22, 80, 443, 445, 3389, 8080, 8443]
+DISCOVERY_PORTS_EXT = [5555, 32400, 1900, 5353, 1883, 5000, 7000, 8081, 9000]
+FALLBACK_PORTS = [22, 80, 443, 445, 8080]
+SCAN_TIMEOUT = 3
+MAX_DISCOVERY_WORKERS = 80
+MAX_ENUM_WORKERS = 30
+MAX_SCAN_PORT_WORKERS = 50
 
 
 def parse_targets(raw):
@@ -51,16 +57,22 @@ def parse_targets(raw):
     return ips
 
 
+_IS_WINDOWS = platform.system().lower() == "windows"
+
 def _ping(ip, timeout=2):
-    param = "-n" if platform.system().lower() == "windows" else "-c"
+    if _IS_WINDOWS:
+        args = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), ip]
+    else:
+        args = ["ping", "-c", "1", "-W", str(timeout), ip]
     try:
-        r = subprocess.run(["ping", param, "1", "-W", str(timeout), ip], capture_output=True, timeout=timeout+1, creationflags=subprocess.CREATE_NO_WINDOW if platform.system().lower() == "windows" else 0)
+        r = subprocess.run(args, capture_output=True, timeout=timeout + 2,
+                           creationflags=subprocess.CREATE_NO_WINDOW if _IS_WINDOWS else 0)
         return r.returncode == 0
     except Exception:
         return False
 
 
-def _tcp_check(ip, port, timeout=1.5):
+def _tcp_check(ip, port, timeout=0.8):
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(timeout)
@@ -69,6 +81,29 @@ def _tcp_check(ip, port, timeout=1.5):
         return r == 0
     except Exception:
         return False
+
+
+def _arp_lookup(ip):
+    """Return MAC address from ARP cache, or empty string."""
+    try:
+        if _IS_WINDOWS:
+            r = subprocess.run(["arp", "-a", ip], capture_output=True, text=True, timeout=3,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+            for line in r.stdout.splitlines():
+                if ip in line:
+                    for part in line.split():
+                        if re.match(r'^([0-9A-Fa-f]{2}[-]){5}([0-9A-Fa-f]{2})$', part):
+                            return part.upper()
+        else:
+            r = subprocess.run(["arp", "-n", ip], capture_output=True, text=True, timeout=3)
+            for line in r.stdout.splitlines():
+                if ip in line:
+                    for part in line.split():
+                        if re.match(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$', part):
+                            return part.upper()
+    except Exception:
+        pass
+    return ""
 
 
 def _resolve_hostname(ip, timeout=2):
@@ -80,27 +115,7 @@ def _resolve_hostname(ip, timeout=2):
 
 
 def _get_mac(ip):
-    try:
-        if platform.system().lower() == "windows":
-            r = subprocess.run(["arp", "-a", ip], capture_output=True, text=True, timeout=3, creationflags=subprocess.CREATE_NO_WINDOW)
-            for line in r.stdout.splitlines():
-                if ip in line:
-                    parts = line.split()
-                    for p in parts:
-                        if re.match(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$', p):
-                            return p.upper()
-        else:
-            import re
-            r = subprocess.run(["arp", "-n", ip], capture_output=True, text=True, timeout=3)
-            for line in r.stdout.splitlines():
-                if ip in line:
-                    parts = line.split()
-                    for p in parts:
-                        if re.match(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$', p):
-                            return p.upper()
-    except Exception:
-        pass
-    return ""
+    return _arp_lookup(ip)
 
 
 VENDOR_TABLE = {
@@ -266,17 +281,32 @@ def _determine_scan_depth(hosts, scan_duration):
     total_ports = sum(len(h.get("ports", [])) for h in hosts)
     risky_hosts = sum(1 for h in hosts if any(p.get("port") in {23, 445, 3389, 5555, 3306, 6379, 27017, 9200} for p in h.get("ports", [])))
 
-    if total_hosts <= 5 and total_ports <= 50:
+    if total_hosts <= 10 and total_ports <= 100:
         return "deep"
-    if total_hosts <= 20 and total_ports <= 100:
-        if risky_hosts > 0 or total_hosts <= 10:
+    if total_hosts <= 40:
+        if risky_hosts > 0 or total_hosts <= 20:
             return "deep"
         return "balanced"
-    if total_hosts <= 50:
-        if risky_hosts > total_hosts * 0.3:
+    if total_hosts <= 100:
+        if risky_hosts > total_hosts * 0.2:
             return "balanced"
-        return "light"
-    return "light"
+        return "balanced"
+    return "balanced"
+
+
+def _quick_scan_ports(ip, ports, timeout=0.5):
+    """Check multiple ports in parallel, return list of open ones."""
+    open_ports = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(ports), 20)) as ex:
+        futures = {ex.submit(_tcp_check, ip, p, timeout): p for p in ports}
+        for f in concurrent.futures.as_completed(futures):
+            p = futures[f]
+            try:
+                if f.result():
+                    open_ports.append(p)
+            except Exception:
+                pass
+    return open_ports
 
 
 def discover_hosts(ips, progress_callback=None):
@@ -284,13 +314,63 @@ def discover_hosts(ips, progress_callback=None):
     total = len(ips)
     done = [0]
 
+    ALL_PROBE_PORTS = DISCOVERY_PORTS + DISCOVERY_PORTS_EXT + FALLBACK_PORTS
+    ALL_PROBE_PORTS = list(set(ALL_PROBE_PORTS))
+
     def check(ip):
-        open_discovery_ports = [p for p in DISCOVERY_PORTS if _tcp_check(ip, p, 1)]
-        alive = _ping(ip) or bool(open_discovery_ports)
-        info = {"ip": ip, "alive": alive, "discovery_ports": open_discovery_ports[:5]}
+        alive = False
+        fallback_used = False
+        open_ports = []
+
+        # Phase 1: ICMP ping (works if not firewalled)
+        ping_ok = _ping(ip, timeout=1.5)
+
+        # Phase 2: Check ARP cache immediately
+        # On Windows, ping populates ARP cache even if ICMP is blocked
+        mac = _get_mac(ip)
+        arp_ok = bool(mac)
+
+        if ping_ok:
+            alive = True
+            if not mac:
+                mac = _get_mac(ip)
+
+        if arp_ok and not alive:
+            alive = True
+            fallback_used = True
+            logger.info("Host %s: alive via ARP (%s)", ip, mac)
+
+        # Phase 3: Quick TCP sweep (only if not yet confirmed alive)
+        if not alive:
+            open_ports = _quick_scan_ports(ip, DISCOVERY_PORTS, timeout=0.5)
+            if open_ports:
+                alive = True
+                fallback_used = True
+                logger.info("Host %s: alive via TCP ports %s", ip, open_ports)
+
+        # Phase 4: Extended TCP sweep
+        if not alive:
+            ext = _quick_scan_ports(ip, DISCOVERY_PORTS_EXT, timeout=0.5)
+            if ext:
+                open_ports.extend(ext)
+                alive = True
+                fallback_used = True
+                logger.info("Host %s: alive via extended TCP ports %s", ip, ext)
+
+        # Phase 5: Fallback TCP with longer timeout
+        if not alive:
+            fback = _quick_scan_ports(ip, FALLBACK_PORTS, timeout=1.0)
+            if fback:
+                open_ports.extend(fback)
+                alive = True
+                fallback_used = True
+                logger.info("Host %s: alive via fallback TCP %s", ip, fback)
+
+        info = {"ip": ip, "alive": alive, "discovery_ports": sorted(set(open_ports))[:5], "fallback_used": fallback_used}
         if alive:
             info["hostname"] = _resolve_hostname(ip)
-            mac = _get_mac(ip)
+            if not mac:
+                mac = _get_mac(ip)
             info["mac"] = mac
             vendor_raw = _vendor_info(mac) if mac else ("", "")
             info["vendor"] = vendor_raw[0] if vendor_raw else ""
@@ -308,25 +388,36 @@ def discover_hosts(ips, progress_callback=None):
     return discovered
 
 
-def scan_light(ip, timeout=4):
+def _check_single_port(ip, port, timeout):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        if s.connect_ex((ip, port)) == 0:
+            s.send(b"\r\n")
+            try:
+                banner = s.recv(1024).decode("utf-8", errors="ignore").strip()[:200]
+            except Exception:
+                banner = ""
+            s.close()
+            svc, ver, prod, conf = detect_service_and_version(port, banner, "tcp")
+            return {"port": port, "protocol": "tcp", "state": "open", "service": svc, "version": ver, "product": prod, "confidence": conf, "banner": banner}
+        s.close()
+    except Exception:
+        pass
+    return None
+
+
+def scan_light(ip, timeout=SCAN_TIMEOUT):
     ports = []
-    for port in TOP_PORTS:
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(timeout)
-            if s.connect_ex((ip, port)) == 0:
-                s.send(b"\r\n")
-                try:
-                    banner = s.recv(1024).decode("utf-8", errors="ignore").strip()[:200]
-                except Exception:
-                    banner = ""
-                s.close()
-                svc, ver, prod, conf = detect_service_and_version(port, banner, "tcp")
-                ports.append({"port": port, "protocol": "tcp", "state": "open", "service": svc, "version": ver, "product": prod, "confidence": conf, "banner": banner})
-            else:
-                s.close()
-        except Exception:
-            pass
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_SCAN_PORT_WORKERS) as ex:
+        futures = {ex.submit(_check_single_port, ip, p, timeout): p for p in TOP_PORTS}
+        for f in concurrent.futures.as_completed(futures):
+            try:
+                r = f.result()
+                if r:
+                    ports.append(r)
+            except Exception:
+                pass
     return ports
 
 
@@ -366,6 +457,125 @@ def scan_deep(ip, scan_method="connect", include_udp=False):
     return result
 
 
+def _add_subnet_info(results, ips):
+    try:
+        first = ips[0]
+        last = ips[-1]
+        cidr = None
+        if len(ips) > 1:
+            net = ipaddress.ip_network(f"{first}/{len(ips)}", strict=False)
+            for prefix in range(32, 15, -1):
+                try:
+                    test = ipaddress.ip_network(f"{first}/{prefix}", strict=False)
+                    if test.num_addresses >= len(ips):
+                        cidr = str(test)
+                        break
+                except ValueError:
+                    continue
+        results["subnet"] = {
+            "first_ip": first,
+            "last_ip": last,
+            "range_size": len(ips),
+            "cidr": cidr or f"{first}/32",
+            "is_subnet": len(ips) > 1,
+        }
+    except Exception:
+        results["subnet"] = {"range_size": len(ips), "is_subnet": len(ips) > 1}
+    return results
+
+
+OS_PORT_SIGNATURES = {
+    "Windows": {135, 139, 445, 3389, 5985, 5986},
+    "Linux": {22, 111, 2049},
+    "macOS": {88, 548, 5003, 7000},
+    "Router": {23, 53, 69, 1900, 5000, 5060},
+    "Printer": {515, 631, 9100},
+    "Android": {5555, 4244, 3724},
+    "IoT": {1883, 8883, 5683, 5684},
+}
+
+
+def _guess_os(ports, banners, hostname):
+    open_ports = {p.get("port") for p in ports if p.get("state") == "open"}
+    combined = " ".join(banners).lower() if banners else ""
+    hostname = (hostname or "").lower()
+    hints = []
+
+    for os_name, sig_ports in OS_PORT_SIGNATURES.items():
+        if open_ports & sig_ports:
+            hints.append((os_name, 60))
+    if "windows" in combined or "microsoft" in combined:
+        hints.append(("Windows", 80))
+    if "linux" in combined or "ubuntu" in combined or "debian" in combined:
+        hints.append(("Linux", 80))
+    if "ssh" in combined or "openssh" in combined:
+        hints.append(("Linux/Unix", 50))
+    if "darwin" in combined or "mac" in combined:
+        hints.append(("macOS", 60))
+    if "android" in combined or "adb" in combined:
+        hints.append(("Android", 70))
+    if "printer" in hostname or "hp-" in hostname or "canon" in hostname:
+        hints.append(("Printer", 80))
+    if "router" in hostname or "ap-" in hostname or "wifi" in hostname:
+        hints.append(("Router", 70))
+
+    if not hints:
+        return "Unknown", "low"
+    hints.sort(key=lambda x: -x[1])
+    return hints[0][0], "high" if hints[0][1] >= 80 else "medium"
+
+
+def _risk_level_from_score(score):
+    score = max(0, min(100, score))
+    if score >= 75:
+        return "CRITICAL"
+    if score >= 50:
+        return "HIGH"
+    if score >= 25:
+        return "MEDIUM"
+    return "LOW"
+
+
+SERVICE_CATEGORIES = {
+    "web": {"http", "https", "http-proxy", "http-alt", "https-alt"},
+    "database": {"mysql", "mariadb", "postgresql", "oracle", "mssql", "redis", "mongodb", "cassandra", "elasticsearch"},
+    "mail": {"smtp", "smtps", "pop3", "pop3s", "imap", "imaps"},
+    "file": {"ftp", "sftp", "nfs", "smb", "netbios-ssn", "cifs"},
+    "remote": {"ssh", "telnet", "rdp", "vnc", "winrm", "winrm-ssl", "adb"},
+    "dns": {"dns", "mdns", "llmnr"},
+    "iot": {"mqtt", "coap", "ssdp"},
+    "monitoring": {"snmp", "zabbix-agent", "zabbix-trapper", "ntp"},
+}
+
+
+def _categorize_service(service):
+    svc = (service or "").lower().strip()
+    for cat, names in SERVICE_CATEGORIES.items():
+        if svc in names:
+            return cat
+    return "other"
+
+
+def _log_phase_results(label, hosts):
+    if not hosts:
+        logger.info("[%s] No hosts found", label)
+        return
+    logger.info("[%s] %d host(s) found:", label, len(hosts))
+    for h in hosts:
+        ip = h.get("ip", "?")
+        ports = h.get("ports", [])
+        cves = h.get("cves", [])
+        os_name = h.get("os", "?")
+        svc_list = ", ".join(sorted(set(p.get("service", "?") for p in ports if p.get("service") and p["service"] != "unknown"))) or "none"
+        logger.info("  %s | OS: %s | ports: %d | svc: [%s] | CVEs: %d",
+                     ip, os_name, len(ports), svc_list, len(cves))
+        for p in ports:
+            logger.debug("    port %d/%s: %s %s %s | banner: %.60s",
+                         p.get("port"), p.get("protocol", "tcp"),
+                         p.get("service", "?"), p.get("product", ""), p.get("version", ""),
+                         p.get("banner", ""))
+
+
 def run_network_scan(targets_raw, profile="adaptive", scan_method="connect", include_udp=False, progress_callback=None):
     start = time.time()
     ips = parse_targets(targets_raw)
@@ -373,7 +583,10 @@ def run_network_scan(targets_raw, profile="adaptive", scan_method="connect", inc
         return {"error": "Could not parse any valid targets", "targets_raw": targets_raw}
 
     is_subnet = len(ips) > 1
-    results = {"targets_raw": targets_raw, "type": "network", "is_subnet": is_subnet, "total_targets": len(ips), "live_count": 0, "hosts": [], "discovery": [], "duration_seconds": 0, "phases": {}}
+    logger.info("=== Network scan started: %s (%d targets) ===", targets_raw, len(ips))
+    results = {"targets_raw": targets_raw, "type": "network", "is_subnet": is_subnet, "total_targets": len(ips), "live_count": 0, "hosts": [], "discovery": [], "duration_seconds": 0, "phases": {}, "fallback_hosts": 0, "used_pn_fallback": False}
+    results = _add_subnet_info(results, ips)
+    logger.info("Subnet: %s (%s -> %s)", results["subnet"].get("cidr", "?"), results["subnet"].get("first_ip", "?"), results["subnet"].get("last_ip", "?"))
 
     if progress_callback:
         progress_callback(0, len(ips), "", False, "discovering")
@@ -382,9 +595,33 @@ def run_network_scan(targets_raw, profile="adaptive", scan_method="connect", inc
     results["discovery"] = discovered
     results["live_count"] = len(discovered)
     results["phases"]["discovery"] = round(time.time() - start, 1)
+    logger.info("Discovery phase: %d/%d hosts alive in %.1fs", len(discovered), len(ips), results["phases"]["discovery"])
+
+    fallback_count = sum(1 for d in discovered if d.get("fallback_used"))
+    results["fallback_hosts"] = fallback_count
+    if fallback_count:
+        logger.info("Fallback used for %d host(s) (ICMP blocked)", fallback_count)
 
     if not discovered:
+        logger.info("Retrying discovery with aggressive -Pn fallback...")
+        if progress_callback:
+            progress_callback(0, len(ips), "", False, "fallback_discovery")
+        discovered = discover_hosts(ips, progress_callback)
+        results["discovery"] = discovered
+        results["live_count"] = len(discovered)
+        results["phases"]["fallback_discovery"] = round(time.time() - start, 1)
+        results["used_pn_fallback"] = True
+        fallback_count = sum(1 for d in discovered if d.get("fallback_used"))
+        results["fallback_hosts"] = fallback_count
+        logger.info("Pn fallback found %d host(s)", len(discovered))
+
+    if not discovered:
+        logger.warning("NO hosts found in %s — check network connectivity and firewall rules", targets_raw)
         results["duration_seconds"] = round(time.time() - start, 1)
+        results["risk_score"] = 0
+        results["risk_level"] = "LOW"
+        results["risk_class"] = "low"
+        results["aggregated"] = {"severity_counts": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}, "total_cves": 0, "total_ports": 0, "top_ports": [], "top_services": [], "os_distribution": {}, "service_categories": {}, "risk_distribution": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}, "hosts_by_risk": {"critical": 0, "high": 0, "medium": 0, "low": 0}}
         return results
 
     if progress_callback:
@@ -395,10 +632,17 @@ def run_network_scan(targets_raw, profile="adaptive", scan_method="connect", inc
     done = [0]
 
     def enum_one(host):
+        ip = host["ip"]
+        logger.info("  Enumerating %s ...", ip)
         light = scan_light(host["ip"])
         vname, dtype = _classify_device(host["ip"], host.get("hostname", ""), host.get("mac", ""), host.get("vendor", ""), light)
+        banners = [p.get("banner", "") for p in light]
+        os_name, os_conf = _guess_os(light, banners, host.get("hostname", ""))
+        port_count = len(light)
+        svc_str = ", ".join(sorted(set(p.get("service", "?") for p in light if p.get("service") and p["service"] != "unknown"))) or "none"
+        logger.info("    -> %s: %d port(s) open [%s] OS: %s", ip, port_count, svc_str, os_name)
         with lock:
-            hosts.append({"ip": host["ip"], "hostname": host.get("hostname", ""), "mac": host.get("mac", ""), "vendor": vname, "device_type": dtype or host.get("device_type", "unknown"), "alive": True, "ports": light, "cves": [], "severity_counts": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}, "risk_score": 0, "scanned": True, "deep_available": True})
+            hosts.append({"ip": host["ip"], "hostname": host.get("hostname", ""), "mac": host.get("mac", ""), "vendor": vname, "device_type": dtype or host.get("device_type", "unknown"), "alive": True, "ports": light, "cves": [], "os": os_name, "os_confidence": os_conf, "severity_counts": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}, "risk_score": 0, "risk_level": "LOW", "scanned": True, "deep_available": True})
             done[0] += 1
             if progress_callback:
                 progress_callback(done[0], len(discovered), host["ip"], True, "enumerating")
@@ -409,57 +653,96 @@ def run_network_scan(targets_raw, profile="adaptive", scan_method="connect", inc
     hosts.sort(key=lambda h: len(h.get("ports", [])), reverse=True)
     results["hosts"] = hosts
     results["phases"]["enumeration"] = round(time.time() - start, 1)
+    logger.info("Enumeration phase: %d hosts enumerated in %.1fs", len(hosts), results["phases"]["enumeration"])
+    _log_phase_results("enumeration", hosts)
 
-    adaptive_depth = _determine_scan_depth(hosts, results["phases"]["enumeration"])
+    logger.info("Starting deep scan phase for %d host(s)...", len(hosts))
+    if progress_callback:
+        progress_callback(0, len(hosts), "", False, "deep_scan")
 
-    if adaptive_depth in ("balanced", "deep"):
-        if progress_callback:
-            progress_callback(0, len(hosts), "", False, f"deep_scan_{adaptive_depth}")
+    deep_done = [0]
+    def deep_one(host):
+        ip = host["ip"]
+        logger.info("  Deep scanning %s ...", ip)
+        deep = scan_deep(ip, scan_method=scan_method, include_udp=include_udp)
+        deep_ports = deep.get("ports", [])
+        deep_cves = deep.get("cves", [])
+        logger.info("    -> %s: %d ports (deep), %d CVE(s)", ip, len(deep_ports), len(deep_cves))
+        with lock:
+            if deep_ports:
+                host["ports"] = deep_ports
+            host["cves"] = deep_cves
+            host["severity_counts"] = deep.get("severity_counts", host["severity_counts"])
+            host["risk_score"] = deep.get("risk_score", 0)
+            host["web"] = deep.get("web")
+            host["deep_available"] = False
+            deep_done[0] += 1
+            if progress_callback:
+                progress_callback(deep_done[0], len(hosts), ip, True, "deep_scan")
 
-        deep_done = [0]
-        def deep_one(host):
-            deep = scan_deep(host["ip"], scan_method=scan_method, include_udp=include_udp)
-            with lock:
-                host["ports"] = deep.get("ports", host["ports"])
-                host["cves"] = deep.get("cves", [])
-                host["severity_counts"] = deep.get("severity_counts", host["severity_counts"])
-                host["risk_score"] = deep.get("risk_score", 0)
-                host["web"] = deep.get("web")
-                host["deep_available"] = False
-                deep_done[0] += 1
-                if progress_callback:
-                    progress_callback(deep_done[0], len(hosts), host["ip"], True, "deep_scan")
+    workers = min(10, len(hosts))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        ex.map(deep_one, hosts)
+    results["phases"]["deep_scan"] = round(time.time() - start, 1)
+    logger.info("Deep scan phase: %d hosts scanned in %.1fs", len(hosts), results["phases"]["deep_scan"])
+    _log_phase_results("deep_scan", hosts)
 
-        workers = min(5, len(hosts))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-            ex.map(deep_one, hosts)
-        results["phases"]["deep_scan"] = round(time.time() - start, 1)
-
-    results["adaptive_depth"] = adaptive_depth
-
+    logger.info("Computing aggregation and risk scores...")
     agg_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     total_cves = 0
     total_ports = 0
     port_freq = defaultdict(int)
     svc_freq = defaultdict(int)
+    os_dist = defaultdict(int)
+    svc_cat_counts = defaultdict(int)
+    risk_dist = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+
     for h in hosts:
         for k in agg_counts:
             agg_counts[k] += h.get("severity_counts", {}).get(k, 0)
         total_cves += len(h.get("cves", []))
+        banners = [p.get("banner", "") for p in h.get("ports", [])]
+        os_name, os_conf = _guess_os(h.get("ports", []), banners, h.get("hostname", ""))
+        h["os"] = os_name
+        h["os_confidence"] = os_conf
+        h["risk_level"] = _risk_level_from_score(h.get("risk_score", 0) or 0)
+        h["risk_class"] = h["risk_level"].lower()
+        os_dist[os_name] += 1
+        risk_dist[h["risk_level"]] += 1
+
         for p in h.get("ports", []):
             total_ports += 1
             port_freq[p.get("port")] += 1
-            svc_freq[p.get("service", "unknown")] += 1
+            svc = p.get("service", "unknown")
+            svc_freq[svc] += 1
+            cat = _categorize_service(svc)
+            svc_cat_counts[cat] += 1
         h.pop("severity_counts", None)
+
+    penalty = agg_counts["critical"] * 25 + agg_counts["high"] * 16 + agg_counts["medium"] * 8 + agg_counts["low"] * 3
+    results["risk_score"] = min(100, penalty) if sum(agg_counts.values()) > 0 else 0
+    results["risk_level"] = _risk_level_from_score(results["risk_score"])
+    results["risk_class"] = results["risk_level"].lower()
 
     results["aggregated"] = {
         "severity_counts": agg_counts,
         "total_cves": total_cves,
         "total_ports": total_ports,
-        "top_ports": sorted([{"port": k, "count": v} for k, v in port_freq.items()], key=lambda x: -x["count"])[:10],
-        "top_services": sorted([{"service": k, "count": v} for k, v in svc_freq.items()], key=lambda x: -x["count"])[:10],
+        "top_ports": sorted([{"port": k, "count": v} for k, v in port_freq.items()], key=lambda x: -x["count"])[:12],
+        "top_services": sorted([{"service": k, "count": v} for k, v in svc_freq.items()], key=lambda x: -x["count"])[:12],
+        "os_distribution": dict(sorted(os_dist.items(), key=lambda x: -x[1])),
+        "service_categories": dict(sorted(svc_cat_counts.items(), key=lambda x: -x[1])),
+        "risk_distribution": risk_dist,
+        "hosts_by_risk": {"critical": sum(1 for h in hosts if h.get("risk_level") == "CRITICAL"),
+                          "high": sum(1 for h in hosts if h.get("risk_level") == "HIGH"),
+                          "medium": sum(1 for h in hosts if h.get("risk_level") == "MEDIUM"),
+                          "low": sum(1 for h in hosts if h.get("risk_level") == "LOW")},
     }
+
     results["duration_seconds"] = round(time.time() - start, 1)
+    logger.info("=== Network scan complete: %d hosts, %d ports, %d CVEs, risk=%s/%d in %.1fs ===",
+                len(hosts), total_ports, total_cves, results["risk_level"], results["risk_score"],
+                results["duration_seconds"])
     return results
 
 

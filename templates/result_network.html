@@ -1,161 +1,431 @@
 {% set net = results %}
-{% set net_agg = net.get("aggregated", {}) %}
-<section class="result-hero-card">
-  <div class="hero-identity">
-    <div class="hero-top-row">
-      <strong class="status-badge done"><i class="fas fa-check"></i> Done</strong>
-      <a class="new-scan-btn" href="{{ url_for('scan_page') }}"><i class="fas fa-plus"></i> New Scan</a>
-    </div>
-    <div class="hero-asset-row">
-      <div class="hero-os-image" style="background:#1e1b4b;border-radius:12px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;">
-        <i class="fas fa-network-wired" style="color:#6366f1;font-size:22px;"></i>
-      </div>
-      <div>
-        <h1 class="hero-asset-name">Network Scan</h1>
-        <p class="hero-target">{{ net.targets_raw or target }} — {{ net.duration_seconds or "?" }}s
-        {% if net.adaptive_depth %}<span class="scan-type-pill type-security" style="margin-left:8px;">Adaptive: {{ net.adaptive_depth|capitalize }}</span>{% endif %}</p>
-      </div>
-    </div>
-    <div class="hero-info-cards">
-      <div class="hero-info-card"><i class="fas fa-calendar"></i><div><span>{{ selected_scan.created_at[:10] if selected_scan.created_at else "" }}</span></div></div>
-      <div class="hero-info-card"><i class="fas fa-tag"></i><div><span>Network Scan</span></div></div>
-    </div>
-  </div>
-  <div class="hero-sev-block">
-    <p class="hero-block-label">Severity Distribution</p>
-    <div class="hero-sev-strip">
-      {% set nc = net.aggregated.severity_counts if net.aggregated else {"critical":0,"high":0,"medium":0,"low":0} %}
-      <div class="hero-sev-cell severity-soft-critical"><strong>{{ nc.critical or 0 }}</strong><span>Critical</span></div>
-      <div class="hero-sev-cell severity-soft-high"><strong>{{ nc.high or 0 }}</strong><span>High</span></div>
-      <div class="hero-sev-cell severity-soft-medium"><strong>{{ nc.medium or 0 }}</strong><span>Medium</span></div>
-      <div class="hero-sev-cell severity-soft-low"><strong>{{ nc.low or 0 }}</strong><span>Low</span></div>
-    </div>
-  </div>
-  <div class="hero-score-block">
-    <div class="score-gauge risk-{{ results.risk_class or 'low' }}" style="--score: {{ results.risk_score or 0 }}%;">
-      <div><strong>{{ net.live_count or 0 }}</strong><span>/ {{ net.total_targets or "?" }} hosts</span></div>
-    </div>
-    <p>Live / Total</p>
-  </div>
-</section>
+{% set agg = net.get("aggregated", {}) %}
+{% set nc = agg.get("severity_counts", {"critical":0,"high":0,"medium":0,"low":0,"info":0}) %}
+{% set subnet = net.get("subnet", {}) %}
+{% set phases = net.get("phases", {}) %}
+{% set hosts = net.get("hosts", []) %}
+{% set live = net.get("live_count", 0) %}
+{% set total = net.get("total_targets", 0) %}
+{% set score = net.get("risk_score", 0) %}
+{% set rlevel = net.get("risk_level", "LOW") %}
+{% set intel = net.get("intel", {}) %}
+{% set asurface = intel.get("attack_surface", {}) %}
+{% set analytics = intel.get("risk_analytics", {}) %}
+{% set plan = intel.get("remediation_plan", []) %}
+{% set assets_iv = intel.get("asset_inventory", []) %}
+{% set most_vuln = analytics.get("most_vulnerable_assets", []) %}
 
-{% set nc = (net.aggregated.severity_counts if net.aggregated else {}) %}
-<section class="result-metrics-vertical">
-  <article class="metric-tile-v"><div class="metric-top"><div class="metric-icon-v" style="color:#4f46e5;background:#eef2ff;"><i class="fas fa-server"></i></div><div class="metric-info-v"><span>Live Hosts</span><strong>{{ net.live_count or 0 }}</strong></div></div><small>of {{ net.total_targets or 0 }} targets</small></article>
-  <article class="metric-tile-v"><div class="metric-top"><div class="metric-icon-v" style="color:#7c3aed;background:#f3e8ff;"><i class="fas fa-bug"></i></div><div class="metric-info-v"><span>Total CVEs</span><strong>{{ net_agg.get("total_cves", 0) }}</strong></div></div><small>across all hosts</small></article>
-  <article class="metric-tile-v"><div class="metric-top"><div class="metric-icon-v" style="color:#2563eb;background:#dbeafe;"><i class="fas fa-plug"></i></div><div class="metric-info-v"><span>Open Ports</span><strong>{{ net_agg.get("total_ports", 0) }}</strong></div></div><small>total discovered</small></article>
-  <article class="metric-tile-v"><div class="metric-top"><div class="metric-icon-v" style="color:#059669;background:#d1fae5;"><i class="fas fa-clock"></i></div><div class="metric-info-v"><span>Duration</span><strong>{{ net.duration_seconds or "?" }}s</strong></div></div><small>scan completed</small></article>
-</section>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/network.css') }}">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
-{% if net.aggregated and (net.aggregated.top_ports or net.aggregated.top_services) %}
-<div class="result-panels">
-  {% if net.aggregated.top_ports %}
-  <article class="panel-card">
-    <div class="panel-title"><i class="fas fa-network-wired"></i><h3>Top Open Ports</h3></div>
-    {% set lc = net.live_count or 1 %}
-    {% for p in net.aggregated.top_ports %}
-    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:13px;">
-      <span style="font-weight:700;min-width:40px;">{{ p.port }}</span>
-      <div style="flex:1;height:8px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
-        <div style="height:100%;width:{{ (p.count / lc * 100)|int }}%;background:#6366f1;border-radius:99px;"></div>
+<div class="ni-body">
+
+{% if not net.get("error") %}
+
+{# ═══════════════ HERO / TOP SUMMARY ═══════════════ #}
+<div class="ni-hero ni-fade-in">
+  <div class="ni-hero-inner">
+    <div class="ni-hero-top">
+      <div class="ni-hero-title">
+        <i class="fas fa-network-wired"></i>
+        <h1>Network Security Assessment</h1>
+        <span class="ni-phase-badge done"><i class="fas fa-check-circle"></i> Complete</span>
+        {% if net.used_pn_fallback %}
+        <span class="ni-phase-badge warn"><i class="fas fa-triangle-exclamation"></i> ICMP blocked</span>
+        {% endif %}
       </div>
-      <span style="color:#64748b;">{{ p.count }} hosts</span>
-    </div>
-    {% endfor %}
-  </article>
-  {% endif %}
-  {% if net.aggregated.top_services %}
-  <article class="panel-card">
-    <div class="panel-title"><i class="fas fa-cubes"></i><h3>Top Services</h3></div>
-    {% set lc = net.live_count or 1 %}
-    {% for s in net.aggregated.top_services %}
-    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:13px;">
-      <span style="font-weight:600;min-width:80px;">{{ s.service }}</span>
-      <div style="flex:1;height:8px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
-        <div style="height:100%;width:{{ (s.count / lc * 100)|int }}%;background:#7c3aed;border-radius:99px;"></div>
+      <div class="ni-hero-meta">
+        <span><i class="fas fa-bullseye"></i> {{ net.targets_raw }}</span>
+        <span><i class="fas fa-clock"></i> {{ "%.1f"|format(net.duration_seconds or 0) }}s</span>
+        {% if subnet.get("cidr") %}<span><i class="fas fa-diagram-project"></i> {{ subnet.cidr }}</span>{% endif %}
+        {% if subnet.get("first_ip") and subnet.get("last_ip") and subnet.is_subnet %}
+        <span><i class="fas fa-arrows-left-right"></i> {{ subnet.first_ip }} &rarr; {{ subnet.last_ip }}</span>
+        {% endif %}
+        <span><i class="fas fa-calendar"></i> {{ net.get("completed_at", "")[:10] or "Just now" }}</span>
       </div>
-      <span style="color:#64748b;">{{ s.count }} hosts</span>
     </div>
-    {% endfor %}
-  </article>
+
+    {% if hosts %}
+    <div class="ni-metrics-row">
+      <div class="ni-metric">
+        <strong>{{ live }}</strong>
+        <div class="ni-metric-label">Live Hosts</div>
+        <div class="ni-metric-sub">of {{ total }} targets</div>
+      </div>
+      <div class="ni-metric">
+        <strong>{{ agg.get("total_ports", 0) }}</strong>
+        <div class="ni-metric-label">Open Ports</div>
+        <div class="ni-metric-sub">total discovered</div>
+      </div>
+      <div class="ni-metric">
+        <strong>{{ agg.get("total_cves", 0) }}</strong>
+        <div class="ni-metric-label">Vulnerabilities</div>
+        <div class="ni-metric-sub">across all hosts</div>
+      </div>
+      <div class="ni-metric">
+        <strong>{{ agg.get("hosts_by_risk",{}).get("critical",0) + agg.get("hosts_by_risk",{}).get("high",0) }}</strong>
+        <div class="ni-metric-label">Risky Hosts</div>
+        <div class="ni-metric-sub">critical + high</div>
+      </div>
+      <div class="ni-metric">
+        <strong>{{ asurface.get("total_exposed_services", 0) }}</strong>
+        <div class="ni-metric-label">Exposed Services</div>
+        <div class="ni-metric-sub">attack surface</div>
+      </div>
+      <div class="ni-metric">
+        <strong>{{ asurface.get("high_risk_access_points", 0) }}</strong>
+        <div class="ni-metric-label">High-Risk Access</div>
+        <div class="ni-metric-sub">remote services</div>
+      </div>
+    </div>
+
+    <div class="ni-risk-block">
+      <div class="ni-risk-score">
+        <strong style="color:{% if rlevel == 'CRITICAL' %}#ef4444{% elif rlevel == 'HIGH' %}#f97316{% elif rlevel == 'MEDIUM' %}#eab308{% else %}#22c55e{% endif %}">{{ score }}</strong>
+        <div class="ni-risk-level" style="background:{% if rlevel == 'CRITICAL' %}#7f1d1d;color:#fca5a5{% elif rlevel == 'HIGH' %}#991b1b;color:#fca5a5{% elif rlevel == 'MEDIUM' %}#92400e;color:#fdba74{% else %}#14532d;color:#86efac{% endif %}">{{ rlevel }}</div>
+      </div>
+      <div class="ni-severity-strip">
+        <div class="ni-sev-crit"><b>{{ nc.get("critical",0) }}</b> Critical</div>
+        <div class="ni-sev-high"><b>{{ nc.get("high",0) }}</b> High</div>
+        <div class="ni-sev-med"><b>{{ nc.get("medium",0) }}</b> Medium</div>
+        <div class="ni-sev-low"><b>{{ nc.get("low",0) }}</b> Low</div>
+        <div class="ni-sev-info"><b>{{ nc.get("info",0) }}</b> Info</div>
+      </div>
+      {% if net.fallback_hosts %}
+      <div style="font-size:11px;color:#fbbf24;text-align:center;white-space:nowrap">
+        <i class="fas fa-triangle-exclamation"></i> {{ net.fallback_hosts }} host(s) via fallback
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ═══════════════ ANALYTICS SECTION ═══════════════ #}
+{% if hosts and agg.get("total_ports", 0) > 0 %}
+<div class="ni-grid-2">
+  {# Severity Distribution #}
+  <div class="ni-card ni-fade-in ni-fade-in-d1">
+    <div class="ni-card-header"><i class="fas fa-chart-pie"></i><h3>Severity Distribution</h3><span class="ni-badge">{{ nc.get("critical",0) + nc.get("high",0) + nc.get("medium",0) + nc.get("low",0) }} total</span></div>
+    <div class="ni-card-body">
+      <div class="ni-chart-container"><canvas id="chartSeverity"></canvas></div>
+    </div>
+  </div>
+
+  {# Top Exposed Ports #}
+  <div class="ni-card ni-fade-in ni-fade-in-d2">
+    <div class="ni-card-header"><i class="fas fa-plug"></i><h3>Top Exposed Ports</h3><span class="ni-badge">{{ agg.get("total_ports", 0) }} total open</span></div>
+    <div class="ni-card-body">
+      <div class="ni-chart-container ni-chart-container-lg"><canvas id="chartTopPorts"></canvas></div>
+    </div>
+  </div>
+
+  {# Services Distribution #}
+  <div class="ni-card ni-fade-in ni-fade-in-d3">
+    <div class="ni-card-header"><i class="fas fa-cubes"></i><h3>Services Distribution</h3><span class="ni-badge">{{ (agg.get("top_services") or [])|length }} services</span></div>
+    <div class="ni-card-body">
+      <div class="ni-chart-container"><canvas id="chartServices"></canvas></div>
+    </div>
+  </div>
+
+  {# OS Distribution #}
+  <div class="ni-card ni-fade-in ni-fade-in-d4">
+    <div class="ni-card-header"><i class="fas fa-laptop"></i><h3>OS Distribution</h3><span class="ni-badge">{{ live }} hosts</span></div>
+    <div class="ni-card-body">
+      <div class="ni-chart-container ni-chart-container-lg"><canvas id="chartOS"></canvas></div>
+    </div>
+  </div>
+</div>
+
+{# Attack Surface & Most Vulnerable Assets #}
+<div class="ni-grid-2">
+  {# Attack Surface Summary #}
+  <div class="ni-card ni-fade-in">
+    <div class="ni-card-header"><i class="fas fa-shield-halved"></i><h3>Attack Surface Summary</h3><span class="ni-badge" style="background:{% if asurface.get('attack_surface_level') == 'CRITICAL' %}#fef2f2;color:#dc2626{% elif asurface.get('attack_surface_level') == 'HIGH' %}#fff7ed;color:#ea580c{% else %}#f0fdf4;color:#16a34a{% endif %}">{{ asurface.get("attack_surface_level", "LOW") }}</span></div>
+    <div class="ni-card-body">
+      <div class="ni-surface-metrics" style="margin-bottom:16px">
+        <div class="ni-surface-item">
+          <b>{{ asurface.get("total_exposed_services", 0) }}</b>
+          <span>Exposed Services</span>
+        </div>
+        <div class="ni-surface-item">
+          <b>{{ asurface.get("unique_services", 0) }}</b>
+          <span>Unique Services</span>
+        </div>
+        <div class="ni-surface-item">
+          <b>{{ asurface.get("high_risk_access_points", 0) }}</b>
+          <span>High-Risk Access</span>
+        </div>
+        <div class="ni-surface-item">
+          <b>{{ asurface.get("attack_surface_score", 0) }}</b>
+          <span>Surface Score</span>
+        </div>
+      </div>
+      <div class="ni-chart-container ni-chart-container-sm"><canvas id="chartAttackSurface"></canvas></div>
+    </div>
+  </div>
+
+  {# Most Vulnerable Assets #}
+  <div class="ni-card ni-fade-in">
+    <div class="ni-card-header"><i class="fas fa-bug"></i><h3>Most Vulnerable Assets</h3><span class="ni-badge">{{ most_vuln|length }} assets</span></div>
+    <div class="ni-card-body">
+      {% if most_vuln %}
+      <div class="ni-vuln-list">
+        {% for va in most_vuln %}
+        <div class="ni-vuln-item">
+          <span class="ni-vuln-rank">#{{ loop.index }}</span>
+          <span class="ni-vuln-ip">{{ va.ip }}</span>
+          <span style="font-size:11px;color:#64748b;flex:1">{{ va.hostname or "—" }}</span>
+          <div class="ni-vuln-counts">
+            {% if va.critical_count > 0 %}<span class="ni-count-pill ni-count-crit">{{ va.critical_count }} Crit</span>{% endif %}
+            {% if va.high_count > 0 %}<span class="ni-count-pill ni-count-high">{{ va.high_count }} High</span>{% endif %}
+            <span class="severity-tag severity-soft-{{ va.risk_level|lower }}" style="font-size:10px;padding:2px 8px">{{ va.risk_score }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div style="text-align:center;padding:24px;color:#94a3b8;font-size:13px">
+        <i class="fas fa-shield-check" style="font-size:32px;display:block;margin-bottom:8px;opacity:0.3"></i>
+        No vulnerable assets detected
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ═══════════════ HOST INVENTORY TABLE ═══════════════ #}
+{% if hosts %}
+<div class="ni-card ni-fade-in">
+  <div class="ni-card-header">
+    <i class="fas fa-server"></i>
+    <h3>Asset Inventory & Host Discovery</h3>
+    <span class="ni-badge">{{ hosts|length }} device{{ 's' if hosts|length != 1 }}</span>
+    <span class="ni-badge" style="margin-left:4px">{{ agg.get("total_ports", 0) }} open ports</span>
+  </div>
+  <div class="ni-table-wrap">
+    <table class="ni-table">
+      <thead>
+        <tr>
+          <th style="width:28px"></th>
+          <th>IP Address</th>
+          <th>Hostname</th>
+          <th>Operating System</th>
+          <th>Vendor / Device</th>
+          <th>Risk</th>
+          <th>Open Ports</th>
+          <th>Services</th>
+          <th>Vulnerabilities</th>
+          <th style="width:32px"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for h in hosts %}
+      {% set hscore = h.get("risk_score",0) %}
+      {% set hrl = h.get("risk_level","LOW") %}
+      {% set os = h.get("os","Unknown") %}
+      {% set oscls = "windows" if "windows" in os|lower else "linux" if "linux" in os|lower or "unix" in os|lower else "macos" if "mac" in os|lower or "darwin" in os|lower else "android" if "android" in os|lower else "unknown" %}
+      {% set osicon = "fa-windows" if "windows" in os|lower else "fa-linux" if "linux" in os|lower else "fa-apple" if "mac" in os|lower else "fa-android" if "android" in os|lower else "fa-circle-question" %}
+      {% set ports = h.get("ports",[]) %}
+      {% set cves = h.get("cves",[]) %}
+      {% set svcs = ports|map(attribute='service')|select('ne','unknown')|select('ne','')|list|unique|list %}
+      {% set dtype = h.get("device_type","unknown") %}
+      {% set dtype_icon = {"mobile":"fa-mobile-screen","tablet":"fa-tablet","tv":"fa-tv","iot":"fa-microchip","printer":"fa-print","router":"fa-wifi","server":"fa-server","console":"fa-gamepad","desktop":"fa-desktop","nas":"fa-database","network":"fa-network-wired","unknown":"fa-question"}.get(dtype,"fa-question") %}
+      {% set dtype_color = {"mobile":"#8b5cf6","tablet":"#7c3aed","tv":"#ef4444","iot":"#059669","printer":"#2563eb","router":"#f97316","server":"#6366f1","console":"#ec4899","desktop":"#3b82f6","nas":"#14b8a6","unknown":"#94a3b8"}.get(dtype,"#94a3b8") %}
+      <tr>
+        <td style="color:{{ dtype_color }};font-size:14px"><i class="fas {{ dtype_icon }}"></i></td>
+        <td class="ni-ip">{{ h.ip }}</td>
+        <td><span class="ni-hostname" title="{{ h.hostname or '' }}">{{ h.hostname or "—" }}</span></td>
+        <td><span class="ni-badge-os {{ oscls }}"><i class="fas {{ osicon }}"></i> {{ os[:20] }}</span></td>
+        <td style="font-size:12px">
+          {% if h.vendor %}<span class="ni-vendor-badge">{{ h.vendor }}</span>{% endif %}
+          <span style="color:#94a3b8;font-size:10px">{{ dtype|capitalize }}</span>
+        </td>
+        <td><span class="severity-tag severity-soft-{{ hrl|lower }}" style="font-size:10px;padding:3px 8px">{{ hscore }}</span></td>
+        <td>
+          {% if ports %}
+          {% for p in ports[:4] %}
+          <span class="ni-port-pill">{{ p.port }}<span class="ni-svc">/{{ (p.service or "?")[:5] }}</span></span>
+          {% endfor %}
+          {% if ports|length > 4 %}<span style="font-size:10px;color:#94a3b8;font-weight:600">+{{ ports|length-4 }}</span>{% endif %}
+          {% else %}<span style="color:#94a3b8;font-size:11px">—</span>{% endif %}
+        </td>
+        <td style="font-size:11px;color:#475569;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ svcs[:3]|join(", ") }}{% if svcs|length > 3 %}, +{{ svcs|length-3 }}{% endif %}</td>
+        <td>
+          {% if cves %}
+          <span class="ni-cve-pill"><i class="fas fa-bug"></i> {{ cves|length }}</span>
+          {% else %}
+          <span style="color:#94a3b8;font-size:11px">0</span>
+          {% endif %}
+        </td>
+        <td><button class="ni-expand-btn" title="View details"><i class="fas fa-chevron-down"></i></button></td>
+      </tr>
+      {# ── Host Detail Row (hidden by default) ── #}
+      <tr class="ni-empty-row" style="display:none" _expanded="false">
+        <td colspan="10">
+          <div class="ni-detail-panel">
+            {# Metadata Grid #}
+            <div class="ni-detail-grid">
+              <div class="ni-detail-field"><b>IP Address</b><code>{{ h.ip }}</code></div>
+              <div class="ni-detail-field"><b>Hostname</b><span>{{ h.hostname or "—" }}</span></div>
+              <div class="ni-detail-field"><b>Operating System</b><span>{{ os }} {% if h.get("os_confidence") %}<small style="color:#94a3b8">({{ h.os_confidence }})</small>{% endif %}</span></div>
+              <div class="ni-detail-field"><b>Device Type</b><span style="color:{{ dtype_color }}"><i class="fas {{ dtype_icon }}"></i> {{ dtype|capitalize }}</span></div>
+              <div class="ni-detail-field"><b>MAC Address</b>{% if h.mac %}<code>{{ h.mac }}</code>{% else %}<span>—</span>{% endif %}</div>
+              <div class="ni-detail-field"><b>Vendor</b><span>{{ h.vendor or "—" }}</span></div>
+              <div class="ni-detail-field"><b>Risk Assessment</b><span class="severity-tag severity-soft-{{ hrl|lower }}" style="font-size:11px">{{ hrl }} ({{ hscore }}/100)</span></div>
+              {% if h.total_technologies is defined %}
+              <div class="ni-detail-field"><b>Technology Stack</b><span>{{ h.technology_stack[:6]|join(", ") }}{% if h.total_technologies > 6 %} +{{ h.total_technologies - 6 }}{% endif %}</span></div>
+              {% endif %}
+            </div>
+
+            {# Open Ports #}
+            {% if ports %}
+            <div class="ni-section-title"><i class="fas fa-door-open"></i> Open Ports &amp; Services ({{ ports|length }})</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px">
+              {% for p in ports %}
+              <span class="ni-port-pill" title="Banner: {{ p.banner[:120] if p.banner else 'No banner' }}">
+                {{ p.port }}/{{ p.protocol or "tcp" }}
+                {% if p.service and p.service != "unknown" %}
+                <span class="ni-svc"> {{ p.service }}</span>
+                {% endif %}
+                {% if p.version %}
+                <span class="ni-svc" style="opacity:0.6"> v{{ p.version[:12] }}</span>
+                {% endif %}
+              </span>
+              {% endfor %}
+            </div>
+            {% endif %}
+
+            {# Web Findings #}
+            {% if h.web %}
+            <div class="ni-section-title"><i class="fas fa-globe"></i> Web Services</div>
+            <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:12px;font-size:12px">
+              <span><b>Title:</b> {{ h.web.title or "—" }}</span>
+              <span><b>Server:</b> {{ h.web.server or "—" }}</span>
+              <span><b>Status:</b> {{ h.web.status_code or "—" }}</span>
+              {% if h.web.technologies %}<span><b>Technologies:</b> {{ h.web.technologies|join(", ") }}</span>{% endif %}
+              {% if h.web.findings_count is defined %}<span><b>Findings:</b> {{ h.web.findings_count }}</span>{% endif %}
+            </div>
+            {% endif %}
+
+            {# Vulnerability Findings #}
+            {% if cves %}
+            <div class="ni-section-title"><i class="fas fa-shield-virus"></i> Vulnerability Findings ({{ cves|length }})</div>
+            <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:12px">
+              {% for c in cves[:10] %}
+              {% set csev = (c.get("severity") or "INFO")|lower %}
+              {% set cvss = c.get("cvss_score") or c.get("score") %}
+              <div class="ni-cve-item" style="border-left-color:{% if csev == 'critical' %}#7f1d1d{% elif csev == 'high' %}#dc2626{% elif csev == 'medium' %}#ea580c{% elif csev == 'low' %}#16a34a{% else %}#64748b{% endif %}">
+                <span class="ni-cve-sev severity-soft-{{ csev }}">{{ c.get("id") or c.get("cve") or "CVE-?" }}</span>
+                <span class="ni-cve-desc">{{ (c.get("description") or "")[:200] }}</span>
+                {% if cvss %}<span class="ni-cve-cvss">CVSS {{ cvss }}</span>{% endif %}
+                {% if c.get("epss_score") is defined and c.epss_score %}
+                <span style="font-size:10px;color:#64748b;white-space:nowrap">EPSS {{ "%.1f"|format(c.epss_score * 100) }}%</span>
+                {% endif %}
+              </div>
+              {% if c.get("remediation") %}
+              <div style="margin: -2px 0 4px 16px;font-size:11px;color:#475569;padding:4px 10px;background:#f8fafc;border-radius:6px;border-left:2px solid #6366f1">
+                <i class="fas fa-wrench" style="color:#6366f1;margin-right:4px"></i>
+                <strong>Remediation:</strong> {{ c.remediation[0] if c.remediation else "Apply vendor patch" }}
+              </div>
+              {% endif %}
+              {% endfor %}
+              {% if cves|length > 10 %}
+              <div style="font-size:11px;color:#94a3b8;padding:6px 0;text-align:center">
+                <i class="fas fa-ellipsis-h"></i> {{ cves|length - 10 }} additional findings not displayed
+              </div>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            {# Deep Scan Button #}
+            {% if h.deep_available %}
+            <div style="margin-top:8px">
+              <button class="deep-scan-btn" onclick="deepScanHost('{{ h.ip }}', this)" data-ip="{{ h.ip }}" style="padding:8px 16px;border:none;border-radius:8px;background:linear-gradient(135deg,#6366f1,#818cf8);color:white;font-size:12px;font-weight:600;cursor:pointer">
+                <i class="fas fa-microscope"></i> Deep Scan This Host
+              </button>
+              <div class="deep-progress" style="display:none;margin-top:8px"><span class="deep-spinner"></span> Scanning...</div>
+            </div>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ═══════════════ SCAN TIMELINE ═══════════════ #}
+{% if phases %}
+<div class="ni-card ni-fade-in">
+  <div class="ni-card-header"><i class="fas fa-timeline"></i><h3>Scan Execution Timeline</h3><span class="ni-badge">{{ "%.1f"|format(net.duration_seconds or 0) }}s total</span></div>
+  <div class="ni-card-body">
+    <div class="ni-timeline">
+      {% set phase_meta = {"discovery":["Host Discovery","fa-radar"],"fallback_discovery":["Pn Fallback (ICMP blocked)","fa-triangle-exclamation"],"enumeration":["Service & Port Enumeration","fa-list"],"deep_scan":["Vulnerability Deep Scan","fa-microscope"]} %}
+      {% for pk, pd in phases.items() %}
+      {% set pm = phase_meta.get(pk, [pk|replace('_',' ')|title, "fa-circle"]) %}
+      <div class="ni-tl-item">
+        <i class="fas {{ pm[1] }}"></i>
+        <span class="ni-tl-label">{{ pm[0] }}</span>
+        <span class="ni-tl-duration">{{ "%.1f"|format(pd) }}s</span>
+        <span class="ni-tl-status done">Complete</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% else %}
+{# ── Empty State ── #}
+<div class="ni-empty">
+  <i class="fas fa-radar"></i>
+  <p>No live hosts discovered</p>
+  <small>The target(s) may be blocking ICMP ping. The scanner attempted TCP-based fallback probes.</small>
+  {% if net.fallback_hosts %}
+  <div style="margin-top:12px;padding:8px 16px;background:#fef3c7;color:#92400e;border-radius:8px;display:inline-block;font-size:12px">
+    <i class="fas fa-triangle-exclamation"></i> {{ net.fallback_hosts }} host(s) detected via TCP fallback
+  </div>
   {% endif %}
 </div>
 {% endif %}
 
-{% if net.hosts %}
-<section class="panel-card details-panel">
-  <div class="panel-title"><i class="fas fa-server"></i><h3>Discovered Hosts ({{ net.hosts|length }})</h3></div>
-  <div class="details-list">
-    {% for host in net.hosts %}
-    {% set h_risk = host.risk_score if host.risk_score is number else 0 %}
-    {% set dev_type = host.get('device_type', 'unknown') %}
-    {% set dev_icons = {'mobile':'fa-mobile-screen','tablet':'fa-tablet-screen','tv':'fa-tv','iot':'fa-microchip','printer':'fa-print','router':'fa-wifi','server':'fa-server','console':'fa-gamepad','desktop':'fa-desktop','nas':'fa-database','network':'fa-network-wired','unknown':'fa-question-circle'} %}
-    {% set dev_icon = dev_icons.get(dev_type, 'fa-question-circle') %}
-    {% set dev_colors = {'mobile':'#8b5cf6','tablet':'#7c3aed','tv':'#ef4444','iot':'#059669','printer':'#2563eb','router':'#f97316','server':'#6366f1','console':'#ec4899','desktop':'#3b82f6','nas':'#14b8a6','network':'#64748b','unknown':'#94a3b8'} %}
-    {% set dev_color = dev_colors.get(dev_type, '#94a3b8') %}
-    <details class="detail-row">
-      <summary>
-        <span class="device-type-icon" style="color:{{ dev_color }};min-width:20px;text-align:center;" title="{{ dev_type|capitalize }}"><i class="fas {{ dev_icon }}"></i></span>
-        <span class="severity-tag severity-soft-{{ 'critical' if h_risk >= 75 else 'high' if h_risk >= 50 else 'medium' if h_risk >= 25 else 'low' }}" style="margin-left:4px;">{{ h_risk }}</span>
-        <b>{{ host.ip or "?" }}</b>
-        <small>{% if host.hostname %}{{ host.hostname }} — {% endif %}{{ (host.ports or [])|length }} ports{% if host.cves %}, {{ host.cves|length }} CVEs{% endif %}</small>
-        {% if host.vendor %}<span class="vendor-badge">{{ host.vendor }}</span>{% endif %}
-        <span class="detail-link">Details <i class="fas fa-chevron-right"></i></span>
-      </summary>
-      <div class="detail-body">
-        {% if host.mac or host.vendor %}
-        <div style="font-size:12px;color:#64748b;margin-bottom:8px;">
-          {% if host.mac %}<code>{{ host.mac }}</code>{% endif %}
-          {% if host.vendor %}<span style="margin-left:6px;">{{ host.vendor }}</span>{% endif %}
-        </div>
-        {% endif %}
-        {% if host.ports %}
-        <strong>Open Ports</strong>
-        <div class="generic-grid">
-          {% for p in host.ports %}
-          <span><b>{{ p.port }}/{{ p.protocol or "tcp" }}</b>{{ p.service or "?" }}{% if p.version %} {{ p.version }}{% endif %}</span>
-          {% endfor %}
-        </div>
-        {% endif %}
-        {% if host.web %}
-        <strong>Web</strong>
-        <p>{{ host.web.title or "No title" }} — {{ host.web.server or "?" }} ({{ host.web.status_code or "?" }})</p>
-        {% endif %}
-        {% if host.cves %}
-        <strong>CVEs ({{ host.cves|length }})</strong>
-        <div style="display:flex;flex-direction:column;gap:6px;">
-          {% for c in host.cves[:5] %}
-          {% set c_sev = (c.severity or "INFO")|lower %}
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;">
-            <span class="severity-tag severity-soft-{{ c_sev }}" style="font-size:10px;">{{ c.id or c.cve or "?" }}</span>
-            {% if c.published_date %}<span style="color:#64748b;">{{ c.published_date }}</span>{% endif %}
-            {% if c.affected_versions %}<span style="color:#64748b;">Affected: {{ c.affected_versions[:2]|join(", ") }}</span>{% endif %}
-          </div>
-          {% endfor %}
-          {% if host.cves|length > 5 %}<span style="font-size:11px;color:#64748b;">+{{ host.cves|length - 5 }} more</span>{% endif %}
-        </div>
-        {% endif %}
-        {% if host.deep_available %}
-        <button class="deep-scan-btn" onclick="deepScanHost('{{ host.ip }}', this)" data-ip="{{ host.ip }}">
-          <i class="fas fa-microscope"></i> Deep Scan This Host
-        </button>
-        <div class="deep-progress" style="display:none;margin-top:8px;"><span class="deep-spinner"></span> Scanning...</div>
-        {% endif %}
-        {% if not host.ports and not host.web and not host.cves %}
-        <p class="muted-copy">Host reachable but no ports/services detected.</p>
-        {% endif %}
-      </div>
-    </details>
-    {% endfor %}
-  </div>
-</section>
 {% else %}
-<section class="panel-card">
-  <div class="panel-title"><i class="fas fa-search"></i><h3>No Hosts Found</h3></div>
-  <p class="muted-copy">No live hosts were discovered in the target range.</p>
-</section>
+{# ── Error State ── #}
+<div class="ni-empty">
+  <i class="fas fa-circle-exclamation"></i>
+  <p>Scan Error</p>
+  <small>{{ net.get("error", "An unknown error occurred during the scan.") }}</small>
+  {% if net.get("recommendation") %}
+  <div style="margin-top:12px;padding:8px 16px;background:#f0fdf4;color:#166534;border-radius:8px;display:inline-block;font-size:12px">
+    <i class="fas fa-lightbulb"></i> {{ net.recommendation }}
+  </div>
+  {% endif %}
+</div>
 {% endif %}
-<style>
-.vendor-badge{font-size:10px;font-weight:600;background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:6px;margin-left:6px;white-space:nowrap}
-.device-type-icon{display:inline-flex;align-items:center;justify-content:center}
-</style>
+
+</div>
+
+{# ═══════════════ INIT CHARTS ═══════════════ #}
+<script src="{{ url_for('static', filename='js/network.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var topPorts = {{ (agg.get("top_ports") or [])|tojson|safe }};
+  var topServices = {{ (agg.get("top_services") or [])|tojson|safe }};
+  var osDist = {{ (agg.get("os_distribution") or {})|tojson|safe }};
+
+  var chartData = {
+    severity: {{ nc|tojson|safe }},
+    topPorts: topPorts,
+    services: topServices,
+    osDistribution: osDist,
+    attackSurface: {{ asurface|tojson|safe }}
+  };
+
+  initNetworkCharts(chartData);
+
+  // Host detail expand/collapse is handled by network.js event delegation
+});
+</script>

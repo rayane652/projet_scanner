@@ -32,7 +32,7 @@
                 {% for scan in scans %}
                     {% set is_active = selected_scan and selected_scan.id == scan.id %}
                     <li>
-                        <a href="{{ url_for('result', scan_id=scan.id) }}"
+                        <a href="{{ url_for('result_by_slug', target_slug=scan.slug) }}"
                         class="scan-list-item {% if is_active %}active{% endif %}">
 
                             <span class="scan-num">#{{ scan.display_no }}</span>
@@ -144,11 +144,30 @@
         </p>
 
         <div class="error-box">
-            <i class="fas fa-bug"></i>
+            <i class="fas fa-shield-halved"></i>
 
-            <span>
-                Try checking authentication, target availability or scan configuration.
-            </span>
+            <div>
+                <strong>Possible causes:</strong>
+                <ul style="margin:6px 0 0 0;padding-left:18px;font-size:13px;color:#64748b;line-height:1.6">
+                    <li>The host may be blocking ICMP ping (firewall)</li>
+                    <li>SYN scan may not work on Windows — use TCP Connect scan</li>
+                    <li>The target may be on a different subnet or powered off</li>
+                    <li>Firewall rules may be filtering all probe ports</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="error-box" style="margin-top:10px;border-color:#e0e7ff;background:#eef2ff">
+            <i class="fas fa-lightbulb" style="color:#6366f1"></i>
+
+            <div>
+                <strong>Tips:</strong>
+                <ul style="margin:6px 0 0 0;padding-left:18px;font-size:13px;color:#4f46e5;line-height:1.6">
+                    <li>Select <strong>TCP Connect</strong> scan instead of SYN scan</li>
+                    <li>Try scanning from within the same local network</li>
+                    <li>If ICMP is blocked, the scanner now auto-falls back to TCP probes</li>
+                </ul>
+            </div>
         </div>
 
         <a href="{{ url_for('scan_page') }}" class="retry-scan-btn">
@@ -178,6 +197,9 @@
                         {% endif %}
                     </div>
                 </section>
+
+            {% elif results is mapping and results.get("type") == "network" %}
+                {% include "result_network.html" %}
 
             {% elif scan_type == "security" and results is mapping %}
                 {% set risk_class = (results.risk_class or results.risk_level or "info")|lower %}
@@ -687,20 +709,138 @@
 </section>
 {% endif %}
             {% elif scan_type == "web" and results is mapping %}
-                <section class="generic-result-card">
-                    <div class="scan-title-row">
-                        <span>Scan Results</span>
-                        <strong class="status-badge done"><i class="fas fa-check"></i> Done</strong>
+                <section class="result-hero-card">
+                    <div class="hero-identity">
+                        <div class="hero-top-row">
+                            <strong class="status-badge done"><i class="fas fa-check"></i> Done</strong>
+                            <a class="new-scan-btn" href="{{ url_for('scan_page') }}"><i class="fas fa-plus"></i> New Scan</a>
+                        </div>
+                        <div class="hero-asset-row">
+                            <div><h1 class="hero-asset-name">{{ asset_name }}</h1><p class="hero-target">{{ target }}</p></div>
+                        </div>
+                        <div class="hero-info-cards">
+                            <div class="hero-info-card"><i class="fas fa-calendar"></i><div><span>{{ selected_scan.created_at[:10] if selected_scan.created_at else "Unknown" }}</span></div></div>
+                            <div class="hero-info-card"><i class="fas fa-globe"></i><div><span>Web Scan</span></div></div>
+                        </div>
                     </div>
-                    <h2>{{ asset_name }}</h2>
-                    <p>{{ target }}</p>
-                    <div class="generic-grid">
-                        <span><b>Final URL</b>{{ results.final_url }}</span>
-                        <span><b>Status</b>{{ results.status_code }}</span>
-                        <span><b>Server</b>{{ results.server or "Unknown" }}</span>
-                        <span><b>Powered By</b>{{ results.powered_by or "Unknown" }}</span>
+                    <div class="hero-sev-block">
+                        <p class="hero-block-label">Severity Breakdown</p>
+                        <div class="hero-sev-strip">
+                            {% for item in results.severity_breakdown %}
+                                <div class="hero-sev-cell severity-soft-{{ item.key }}"><strong>{{ item.count }}</strong><span>{{ item.label }}</span></div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="hero-score-block">
+                        <strong style="font-size:32px">{{ results.web_risk_score or 0 }}</strong>
+                        <p>Risk Score</p>
+                        <span class="risk-label {{ (results.web_risk_level or "info")|lower }}">{{ results.web_risk_level or "INFO" }}</span>
                     </div>
                 </section>
+
+                {# Technologies #}
+                {% set tech = results.technologies or [] %}
+                {% if tech %}
+                <section class="panel-card">
+                    <div class="panel-title"><i class="fas fa-microchip"></i><h3>Technologies ({{ tech|length }})</h3></div>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px">
+                        {% for t in tech %}
+                        <span class="tech-badge" style="background:#ede9fe;color:#5b21b6;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600">
+                            {{ t.name }}{% if t.version %} <small style="opacity:.7">v{{ t.version }}</small>{% endif %}
+                            {% if t.confidence == "100" %}<i class="fas fa-check-circle" style="margin-left:4px;font-size:10px;color:#059669"></i>
+                            {% elif t.confidence == "high" %}<i class="fas fa-check" style="margin-left:4px;font-size:10px;color:#059669"></i>
+                            {% elif t.confidence == "medium" %}<i class="fas fa-minus" style="margin-left:4px;font-size:10px;color:#d97706"></i>
+                            {% else %}<i class="fas fa-question" style="margin-left:4px;font-size:10px;color:#6b7280"></i>{% endif %}
+                        </span>
+                        {% endfor %}
+                    </div>
+                </section>
+                {% endif %}
+
+                {# Meta #}
+                <div class="generic-grid" style="padding:12px 0">
+                    <span><b>Final URL</b><code style="font-size:12px">{{ results.final_url }}</code></span>
+                    <span><b>Status</b>{{ results.status_code }}</span>
+                    <span><b>Server</b>{{ results.server or "Unknown" }}</span>
+                    <span><b>Powered By</b>{{ results.powered_by or "Unknown" }}</span>
+                    <span><b>Title</b>{{ results.title or "—" }}</span>
+                    <span><b>Content Type</b>{{ results.content_type or "—" }}</span>
+                </div>
+
+                {# Findings #}
+                {% set waf = results.waf or [] %}
+                {% set findings = results.findings or [] %}
+                {% if waf or findings %}
+                <section class="panel-card">
+                    <div class="panel-title"><i class="fas fa-shield-alt"></i><h3>Findings ({{ waf|length + findings|length }})</h3></div>
+                    {% if waf %}
+                    <div style="padding:8px 16px">
+                        <strong>WAF Detected:</strong>
+                        {% for w in waf %}
+                        <span class="severity-tag severity-soft-info" style="margin:4px">{{ w.name }} ({{ w.confidence }})</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    <div class="details-list">
+                        {% for f in findings %}
+                        <div class="detail-row static-row">
+                            <span class="severity-tag severity-soft-{{ (f.severity or "INFO")|lower }}">{{ f.severity or "INFO" }}</span>
+                            <b>{{ f.name }}</b>
+                            <small>{{ f.detail[:200] }}</small>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+                {% endif %}
+
+                {# Attack Surface #}
+                {% set surf = results.attack_surface or {} %}
+                <section class="result-metrics-horizontal">
+                    <article class="metric-h-tile"><div class="metric-h-icon" style="color:#4f46e5;background:#eef2ff"><i class="fas fa-globe"></i></div><div class="metric-h-body"><strong>{{ surf.paths_discovered or 0 }}</strong><span>Paths</span></div></article>
+                    <article class="metric-h-tile"><div class="metric-h-icon" style="color:#7c3aed;background:#f3e8ff"><i class="fas fa-code"></i></div><div class="metric-h-body"><strong>{{ surf.api_endpoints or 0 }}</strong><span>API Endpoints</span></div></article>
+                    <article class="metric-h-tile"><div class="metric-h-icon" style="color:#2563eb;background:#dbeafe"><i class="fas fa-window-maximize"></i></div><div class="metric-h-body"><strong>{{ surf.forms_detected or 0 }}</strong><span>Forms</span></div></article>
+                    <article class="metric-h-tile"><div class="metric-h-icon" style="color:#16a34a;background:#dcfce7"><i class="fas fa-microchip"></i></div><div class="metric-h-body"><strong>{{ surf.technologies_fingerprinted or 0 }}</strong><span>Technologies</span></div></article>
+                    <article class="metric-h-tile"><div class="metric-h-icon" style="color:#d97706;background:#fef3c7"><i class="fas fa-file-code"></i></div><div class="metric-h-body"><strong>{{ surf.js_files_analyzed or 0 }}</strong><span>JS Files</span></div></article>
+                    <article class="metric-h-tile"><div class="metric-h-icon" style="color:#6366f1;background:#eef2ff"><i class="fas fa-cookie"></i></div><div class="metric-h-body"><strong>{{ surf.cookies_analyzed or 0 }}</strong><span>Cookies</span></div></article>
+                    <article class="metric-h-tile"><div class="metric-h-icon" style="color:#db2777;background:#fdf2f8"><i class="fas fa-key"></i></div><div class="metric-h-body"><strong>{{ surf.auth_mechanisms or 0 }}</strong><span>Auth Methods</span></div></article>
+                    <article class="metric-h-tile"><div class="metric-h-icon" style="color:#0891b2;background:#ecfeff"><i class="fas fa-shield-halved"></i></div><div class="metric-h-body"><strong>{{ surf.exposed_admin_panels or 0 }}</strong><span>Admin Panels</span></div></article>
+                </section>
+
+                {# Endpoints #}
+                {% set eps = results.endpoints or [] %}
+                {% if eps %}
+                <section class="panel-card">
+                    <div class="panel-title"><i class="fas fa-code-branch"></i><h3>Discovered Endpoints ({{ eps|length }})</h3></div>
+                    <div class="details-list">
+                        {% for ep in eps %}
+                        <div class="detail-row static-row"><code style="font-size:12px">{{ ep }}</code></div>
+                        {% endfor %}
+                    </div>
+                </section>
+                {% endif %}
+
+                {# Cookies #}
+                {% set cks = results.cookies or [] %}
+                {% if cks %}
+                <section class="panel-card">
+                    <div class="panel-title"><i class="fas fa-cookie-bite"></i><h3>Cookies ({{ cks|length }})</h3></div>
+                    <div class="details-list">
+                        {% for c in cks %}
+                        <div class="detail-row static-row">
+                            <b>{{ c.name }}</b>
+                            <small>Secure: {{ c.secure }} | HttpOnly: {{ c.httponly }} | SameSite: {{ c.samesite or "—" }}</small>
+                            {% if c.secure and c.httponly and c.samesite in ("lax","strict") %}
+                            <span class="severity-tag severity-soft-low">Secure</span>
+                            {% elif not c.secure %}
+                            <span class="severity-tag severity-soft-high">Insecure</span>
+                            {% else %}
+                            <span class="severity-tag severity-soft-medium">Warning</span>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+                {% endif %}
 
             {% elif scan_type == "cve" %}
                 <section class="generic-result-card">

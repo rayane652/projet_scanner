@@ -158,7 +158,7 @@
                     </div>
 
                     <div class="asset-footer">
-                        <a class="details-link" href="{{ url_for('result', scan_id=asset.latest_scan_id) }}">
+                        <a class="details-link" href="{{ url_for('result_by_slug', target_slug=asset.slug) }}">
                             View Details <i class="fas fa-arrow-right"></i>
                         </a>
 <form method="POST"

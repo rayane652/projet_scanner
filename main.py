@@ -1,4 +1,5 @@
 import os
+import re
 import secrets
 import sqlite3
 import json
@@ -171,13 +172,27 @@ def execute_scan(scan_type, scan_mode, target, form_data):
     if scan_type == "security":
         if scan_scope == "network":
             from modules.network_scanner import run_network_scan
+            scan_method = form_data.get("tcp_scan_method") or "connect"
             result = run_network_scan(
                 target,
                 profile="adaptive",
-                scan_method=form_data.get("tcp_scan_method") or "connect",
+                scan_method=scan_method,
                 include_udp=bool(form_data.get("include_udp")),
             )
             result["scan_scope"] = "network"
+            result["scan_method"] = scan_method
+            if not result.get("error"):
+                try:
+                    from modules.network_intel import enrich_network_results
+                    result = enrich_network_results(result)
+                except Exception as e:
+                    print("NETWORK INTEL ENRICHMENT ERROR:", repr(e))
+            if result.get("fallback_hosts", 0) > 0:
+                result["warning"] = "ICMP ping blocked or unreliable — TCP-based fallback was used for {} host(s)".format(result["fallback_hosts"])
+            if not result.get("live_count") and not result.get("error"):
+                result["error"] = "No hosts found"
+                result["message"] = "No live hosts discovered. The target(s) may be blocking ICMP ping."
+                result["recommendation"] = "Make sure the hosts are online. Try scanning a single host with TCP-based scan."
             return result
 
         ip = resolve_host(target)
@@ -205,9 +220,15 @@ def execute_scan(scan_type, scan_mode, target, form_data):
                     "The target is offline, unreachable, or not responding "
                     "to HTTP/HTTPS requests."
                 ),
+                "details": [
+                    "ICMP ping may be blocked by firewall",
+                    "Try a TCP-based scan on a known-open port",
+                    "The host may be on a different subnet or powered off"
+                ],
                 "recommendation": (
                     "Verify that the device is powered on, connected to the network, "
-                    "and that the IP address is correct."
+                    "and that the IP address is correct. If ICMP is blocked, "
+                    "the scanner will automatically fall back to TCP probes."
                 )
             }
 
@@ -255,6 +276,12 @@ def execute_scan(scan_type, scan_mode, target, form_data):
                 "target": target,
                 "resolved_ip": ip,
                 "message": "No open ports were found in the scanned range.",
+                "details": [
+                    "The host may be blocking ICMP ping (typical firewall behavior)",
+                    "Firewall rules may be filtering the scanned ports",
+                    "Only the most common ports were scanned"
+                ],
+                "recommendation": "If you know a specific open port, scan it directly. Try scanning from within the same network segment."
             }
         return port_results
 
@@ -268,15 +295,34 @@ def run_scan_job(scan_id, scan_type, scan_mode, target, form_data):
     try:
         result = execute_scan(scan_type, scan_mode, target, form_data)
         conn = get_db_connection()
+
+        is_failed = result.get("status") == "failed"
+        error_msg = None
+
+        if is_failed:
+            error_parts = []
+            if result.get("title"):
+                error_parts.append(result["title"])
+            if result.get("message"):
+                error_parts.append(result["message"])
+            if result.get("error"):
+                err_val = result["error"]
+                if isinstance(err_val, str):
+                    error_parts.append(err_val)
+            if result.get("recommendation"):
+                error_parts.append("Suggestion: " + result["recommendation"])
+            error_msg = " | ".join(error_parts) if error_parts else "Scan failed"
+
         conn.execute(
             """
             UPDATE scans
-            SET status = ?, result_json = ?, error_message = NULL, completed_at = ?
+            SET status = ?, result_json = ?, error_message = ?, completed_at = ?
             WHERE id = ?
             """,
             (
-                "failed" if result.get("status") == "failed" else "done",
+                "failed" if is_failed else "done",
                 json.dumps(result, default=str),
+                error_msg,
                 datetime.utcnow().isoformat(),
                 scan_id
             ),
@@ -313,6 +359,7 @@ def fetch_user_scans(user_email):
     for display_no, scan in enumerate(scans, start=1):
         scan["display_no"] = display_no
         scan["asset_label"] = scan.get("machine_name") or scan.get("target")
+        scan["slug"] = _compute_slug(scan)
     return scans
 
 
@@ -334,6 +381,7 @@ def fetch_scan(scan_id, user_email):
             break
     scan["display_no"] = display_no
     scan["asset_label"] = scan.get("machine_name") or scan.get("target")
+    scan["slug"] = _compute_slug(scan)
     return scan
 
 
@@ -573,6 +621,21 @@ def decorate_result_payload(payload):
     return payload
 
 
+def _make_slug(text):
+    text = (text or "").lower().strip()
+    text = re.sub(r'[^\w\s-]', '', text)
+    text = re.sub(r'[-\s]+', '-', text)
+    return text.strip('-') or "untitled"
+
+
+def _compute_slug(scan_or_target, scan_id=None):
+    if isinstance(scan_or_target, dict):
+        raw = scan_or_target.get("machine_name") or scan_or_target.get("target") or "scan"
+    else:
+        raw = scan_or_target
+    return _make_slug(raw)
+
+
 def humanize_timestamp(value):
     if not value:
         return "Never"
@@ -754,6 +817,7 @@ def fetch_user_assets(user_email):
         asset = assets_by_key.setdefault(key, {
             "name": scan_item.get("machine_name") or scan_item.get("target") or "Unnamed machine",
             "target": scan_item.get("target"),
+            "slug": scan_item.get("slug", str(scan_item.get("id", ""))),
             "scan_count": 0,
             "latest_scan_id": scan_item.get("id"),
             "latest_status": scan_item.get("status"),
@@ -776,6 +840,7 @@ def fetch_user_assets(user_email):
 
         if asset["scan_count"] == 1:
             asset["latest_scan_id"] = scan_item.get("id")
+            asset["slug"] = scan_item.get("slug", str(scan_item.get("id", "")))
             asset["latest_status"] = scan_item.get("status")
             asset["latest_scan_type"] = scan_item.get("scan_type")
             asset["last_seen"] = scan_item.get("completed_at") or scan_item.get("created_at")
@@ -1090,7 +1155,8 @@ def run_scan():
     )
     worker.start()
 
-    return redirect(url_for("result", scan_id=scan_id))
+    slug = _compute_slug(machine_name or target, scan_id)
+    return redirect(url_for("result_by_slug", target_slug=slug))
 
 
 # ================= ASSETS =================
@@ -1120,13 +1186,66 @@ def result():
         return redirect(url_for("home"))
     ensure_scans_table()
 
-    user_email = session["user"]["email"]
-    scans = fetch_user_scans(user_email)
-
-    selected_scan = None
     selected_scan_id = request.args.get("scan_id", type=int)
     if selected_scan_id:
-        selected_scan = fetch_scan(selected_scan_id, user_email)
+        scan = fetch_scan(selected_scan_id, session["user"]["email"])
+        if scan:
+            return redirect(url_for("result_by_slug", target_slug=scan["slug"]))
+
+    return redirect(url_for("result_list"))
+
+
+@app.route("/results")
+def result_list():
+    if "user" not in session:
+        return redirect(url_for("home"))
+    ensure_scans_table()
+    scans = fetch_user_scans(session["user"]["email"])
+    return render_template("result.html", user=session["user"], active="result", scans=scans,
+                           selected_scan=None, results=None, target=None, scan_type=None,
+                           scan_error=None, ai_messages=[])
+
+
+@app.route("/result/<target_slug>")
+def result_by_slug(target_slug):
+    if "user" not in session:
+        return redirect(url_for("home"))
+    ensure_scans_table()
+
+    user_email = session["user"]["email"]
+    all_scans = fetch_user_scans(user_email)
+
+    # Backward compat: old {slug}-{id} format -> redirect to clean slug
+    old_match = re.match(r'^(.+)-\d+$', target_slug)
+    if old_match:
+        base_slug = old_match.group(1)
+        has_clean = any(s.get("slug") == base_slug for s in all_scans)
+        if has_clean:
+            print(f"[DEBUG] redirecting old-format slug '{target_slug}' -> '{base_slug}'")
+            return redirect(url_for("result_by_slug", target_slug=base_slug))
+
+    # Find all scans matching this slug, pick the latest
+    matching = [s for s in all_scans if s.get("slug") == target_slug]
+
+    if matching:
+        latest = matching[0]
+        scan_id = latest["id"]
+        selected_scan = fetch_scan(scan_id, user_email)
+        print(f"[DEBUG] slug '{target_slug}' -> {len(matching)} match(es), using latest scan_id={scan_id} -> found={bool(selected_scan)}")
+    else:
+        # Try target_slug as raw scan_id (direct ID access)
+        print(f"[DEBUG] slug '{target_slug}' has no matches, trying as raw scan ID")
+        selected_scan = fetch_scan(target_slug, user_email)
+        if selected_scan:
+            correct_slug = selected_scan.get("slug")
+            print(f"[DEBUG] resolved raw ID '{target_slug}' -> slug='{correct_slug}', redirecting")
+            return redirect(url_for("result_by_slug", target_slug=correct_slug))
+
+    if selected_scan and selected_scan.get("result_json"):
+        parsed_count = len(selected_scan["result_json"])
+        print(f"[DEBUG] scan_id={selected_scan.get('id')} has result_json ({parsed_count} chars)")
+    else:
+        print(f"[DEBUG] slug='{target_slug}', selected={bool(selected_scan)}, has_result_json={bool(selected_scan and selected_scan.get('result_json'))}")
 
     result_payload = None
     target = None
@@ -1147,9 +1266,6 @@ def result():
                     result_payload = {"target": target, "error": "Invalid scan result format"}
             except Exception:
                 result_payload = {"target": target, "error": "Scan result data is corrupted or unreadable"}
-
-    findings = (result_payload or {}).get("findings", [])
-        # ───────── LOAD AI CHAT HISTORY ─────────
 
     ai_messages = []
 
@@ -1174,7 +1290,7 @@ def result():
         "result.html",
         user=session["user"],
         active="result",
-        scans=scans,
+        scans=all_scans,
         selected_scan=selected_scan,
         results=result_payload,
         target=target,
@@ -1726,6 +1842,7 @@ def search():
             if q in searchable_text:
 
                 scan_copy = dict(scan)
+                scan_copy["slug"] = full_scan.get("slug", str(scan["id"]))
 
                 if isinstance(payload, dict):
                     scan_copy["risk_level"] = payload.get("risk_level")
@@ -1751,7 +1868,8 @@ def search():
                         "port": port.get("port"),
                         "service": port.get("service", "Unknown"),
                         "product": port.get("product", ""),
-                        "scan_id": scan["id"]
+                        "scan_id": scan["id"],
+                        "scan_slug": full_scan.get("slug", str(scan["id"]))
                     })
 
             # ───────── VULNERABILITIES ─────────
@@ -1768,7 +1886,8 @@ def search():
                         "category": vuln.get("category", ""),
                         "severity": vuln.get("severity", "INFO"),
                         "cve_id": vuln.get("cve_id"),
-                        "scan_id": scan["id"]
+                        "scan_id": scan["id"],
+                        "scan_slug": full_scan.get("slug", str(scan["id"]))
                     })
 
             # ───────── WEB PATHS ─────────
@@ -1783,7 +1902,8 @@ def search():
                     results["webpaths"].append({
                         "path": path.get("path", "/"),
                         "status": path.get("status"),
-                        "scan_id": scan["id"]
+                        "scan_id": scan["id"],
+                        "scan_slug": full_scan.get("slug", str(scan["id"]))
                     })
 
             # ───────── AI ANALYSIS ─────────
@@ -1793,7 +1913,8 @@ def search():
 
                 results["ai"].append({
                     "title": "AI Security Analysis",
-                    "scan_id": scan["id"]
+                    "scan_id": scan["id"],
+                    "scan_slug": full_scan.get("slug", str(scan["id"]))
                 })
 
         # REMOVE DUPLICATES

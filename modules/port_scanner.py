@@ -1,7 +1,12 @@
+import logging
+import platform
 import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from modules.utils import grab_banner
+
+logger = logging.getLogger(__name__)
+_WINDOWS = platform.system().lower() == "windows"
 
 
 COMMON_PORTS = {
@@ -167,13 +172,15 @@ def scan_syn_port(ip, port, timeout=1.0):
 
 
 def scan_tcp_port(ip, port, scan_method="connect"):
-    if scan_method == "syn":
+    if scan_method == "syn" and not _WINDOWS:
         syn_result = scan_syn_port(ip, port)
         if syn_result and syn_result.get("state") == "open":
             return syn_result
         if syn_result and syn_result.get("state") == "closed":
             return syn_result
         return scan_tcp_connect_port_with_retry(ip, port)
+    if scan_method == "syn" and _WINDOWS:
+        logger.debug("SYN scan not supported on Windows, falling back to TCP connect for %s:%d", ip, port)
     return scan_tcp_connect_port_with_retry(ip, port)
 
 
@@ -229,6 +236,9 @@ def scan_ports(
 
     open_ports = []
     scan_method = scan_method if scan_method in {"connect", "syn"} else "connect"
+    if scan_method == "syn" and _WINDOWS:
+        logger.info("Windows detected: forcing TCP connect scan instead of SYN scan for %s", ip)
+        scan_method = "connect"
 
     with ThreadPoolExecutor(max_workers=threads) as executor:
         future_map = {executor.submit(scan_tcp_port, ip, p, scan_method): p for p in ports}

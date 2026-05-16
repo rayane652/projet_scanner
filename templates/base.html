@@ -35,7 +35,7 @@
         <span>Assets</span>
     </a>
 
-    <a href="/result" class="side-item {% if active=='result' %}active{% endif %}">
+    <a href="{{ url_for('result_list') }}" class="side-item {% if active=='result' %}active{% endif %}">
         <i class="fas fa-file-alt"></i>
         <span>Results</span>
     </a>
